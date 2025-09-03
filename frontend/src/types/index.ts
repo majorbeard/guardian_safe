@@ -52,6 +52,8 @@ export interface SafeEvent {
 
 // Trip Management Types
 export interface Trip {
+  clientEmail: any;
+  priority: string;
   id: string;
   clientName: string;
   pickupAddress: string;

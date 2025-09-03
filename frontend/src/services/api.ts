@@ -6,6 +6,7 @@ import type {
   AuditLog,
   PaginatedResponse,
 } from "../types";
+import { notificationActions } from "../store/notifications";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
@@ -27,9 +28,32 @@ class ApiService {
 
     try {
       const response = await fetch(url, config);
+
+      // Handle network errors
+      if (!response.ok && response.status >= 500) {
+        notificationActions.error(
+          "Server Error",
+          "Internal server error. Please try again."
+        );
+        return {
+          success: false,
+          error: "Server error occurred",
+        };
+      }
+
       const data = await response.json();
 
       if (!response.ok) {
+        // Handle authentication errors
+        if (response.status === 401) {
+          notificationActions.warning("Session Expired", "Please log in again");
+        } else if (response.status === 403) {
+          notificationActions.error(
+            "Access Denied",
+            "You don't have permission to perform this action"
+          );
+        }
+
         return {
           success: false,
           error: data.error || "Request failed",
@@ -41,6 +65,8 @@ class ApiService {
         data,
       };
     } catch (error) {
+      console.error("API Request failed:", error);
+      notificationActions.error("Network Error", "Unable to connect to server");
       return {
         success: false,
         error: error instanceof Error ? error.message : "Network error",
@@ -57,9 +83,18 @@ class ApiService {
   }
 
   async logout(): Promise<ApiResponse<void>> {
-    return this.request<void>("/api/auth/logout", {
+    const result = await this.request<void>("/api/auth/logout", {
       method: "POST",
     });
+
+    if (result.success) {
+      notificationActions.success(
+        "Logged Out",
+        "You have been logged out successfully"
+      );
+    }
+
+    return result;
   }
 
   async getCurrentUser(): Promise<ApiResponse<User>> {
@@ -70,10 +105,19 @@ class ApiService {
     currentPassword: string,
     newPassword: string
   ): Promise<ApiResponse<void>> {
-    return this.request<void>("/api/auth/change-password", {
+    const result = await this.request<void>("/api/auth/change-password", {
       method: "PUT",
       body: JSON.stringify({ currentPassword, newPassword }),
     });
+
+    if (result.success) {
+      notificationActions.success(
+        "Password Changed",
+        "Your password has been updated successfully"
+      );
+    }
+
+    return result;
   }
 
   // User Management (Admin only)
@@ -84,20 +128,38 @@ class ApiService {
   async createUser(
     userData: Omit<User, "id" | "createdAt">
   ): Promise<ApiResponse<User>> {
-    return this.request<User>("/api/admin/users", {
+    const result = await this.request<User>("/api/admin/users", {
       method: "POST",
       body: JSON.stringify(userData),
     });
+
+    if (result.success) {
+      notificationActions.success(
+        "User Created",
+        `User ${userData.username} created successfully`
+      );
+    }
+
+    return result;
   }
 
   async updateUser(
     userId: string,
     updates: Partial<User>
   ): Promise<ApiResponse<User>> {
-    return this.request<User>(`/api/admin/users/${userId}`, {
+    const result = await this.request<User>(`/api/admin/users/${userId}`, {
       method: "PUT",
       body: JSON.stringify(updates),
     });
+
+    if (result.success) {
+      notificationActions.success(
+        "User Updated",
+        "User information updated successfully"
+      );
+    }
+
+    return result;
   }
 
   // Safe Management
@@ -110,10 +172,19 @@ class ApiService {
   }
 
   async registerSafe(serialNumber: string): Promise<ApiResponse<Safe>> {
-    return this.request<Safe>("/api/safes/register", {
+    const result = await this.request<Safe>("/api/safes/register", {
       method: "POST",
       body: JSON.stringify({ serialNumber }),
     });
+
+    if (result.success) {
+      notificationActions.success(
+        "Safe Registered",
+        `Safe ${serialNumber} registered successfully`
+      );
+    }
+
+    return result;
   }
 
   async updateSafe(
@@ -160,10 +231,19 @@ class ApiService {
     courierId: string,
     safeId: string
   ): Promise<ApiResponse<Trip>> {
-    return this.request<Trip>(`/api/trips/${tripId}/assign`, {
+    const result = await this.request<Trip>(`/api/trips/${tripId}/assign`, {
       method: "PUT",
       body: JSON.stringify({ courierId, safeId }),
     });
+
+    if (result.success) {
+      notificationActions.success(
+        "Trip Assigned",
+        "Trip has been assigned successfully"
+      );
+    }
+
+    return result;
   }
 
   // Safe Commands (Real-time control)
@@ -171,16 +251,34 @@ class ApiService {
     safeId: string,
     otpCode: string
   ): Promise<ApiResponse<void>> {
-    return this.request<void>(`/api/safes/${safeId}/unlock`, {
+    const result = await this.request<void>(`/api/safes/${safeId}/unlock`, {
       method: "POST",
       body: JSON.stringify({ otpCode }),
     });
+
+    if (result.success) {
+      notificationActions.success(
+        "Safe Unlocked",
+        `Safe ${safeId} unlocked successfully`
+      );
+    }
+
+    return result;
   }
 
   async lockSafe(safeId: string): Promise<ApiResponse<void>> {
-    return this.request<void>(`/api/safes/${safeId}/lock`, {
+    const result = await this.request<void>(`/api/safes/${safeId}/lock`, {
       method: "POST",
     });
+
+    if (result.success) {
+      notificationActions.success(
+        "Safe Locked",
+        `Safe ${safeId} locked successfully`
+      );
+    }
+
+    return result;
   }
 
   // Audit Logs

@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { Shield, Eye, EyeOff } from "lucide-preact";
 import { apiService } from "../services/api";
 import { authActions } from "../store/auth";
+import { notificationActions } from "../store/notifications";
 import { wsService } from "../services/websocket";
 import Button from "../components/Button";
 import Input from "../components/Input";
@@ -11,18 +12,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
   const handleLogin = async (e: Event) => {
     e.preventDefault();
 
     if (!username.trim() || !password.trim()) {
-      setError("Please enter both username and password");
+      notificationActions.warning(
+        "Missing Information",
+        "Please enter both username and password"
+      );
       return;
     }
 
     setLoading(true);
-    setError("");
 
     try {
       const response = await apiService.login(username.trim(), password);
@@ -31,11 +33,21 @@ export default function LoginPage() {
         authActions.setUser(response.data);
         // Connect WebSocket after successful login
         wsService.connect();
+        notificationActions.success(
+          "Login Successful",
+          `Welcome back, ${response.data.username}!`
+        );
       } else {
-        setError(response.error || "Invalid username or password");
+        notificationActions.error(
+          "Login Failed",
+          response.error || "Invalid username or password"
+        );
       }
     } catch (err) {
-      setError("Network error. Please try again.");
+      notificationActions.error(
+        "Network Error",
+        "Unable to connect to server. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -57,13 +69,7 @@ export default function LoginPage() {
         </div>
 
         <div class="bg-white rounded-xl shadow-xl p-8">
-          <form class="space-y-6" onSubmit={(e) => handleLogin(e)}>
-            {error && (
-              <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
-
+          <form class="space-y-6" onSubmit={handleLogin}>
             <Input
               label="Username"
               type="text"
