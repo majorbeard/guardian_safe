@@ -5,7 +5,7 @@ interface LoadingSpinnerProps {
   className?: string;
 }
 
-export default function LoadingSpinner({
+export function LoadingSpinner({
   size = "medium",
   className,
 }: LoadingSpinnerProps) {
@@ -17,7 +17,7 @@ export default function LoadingSpinner({
 
   return (
     <div
-      class={clsx(
+      className={clsx(
         "animate-spin rounded-full border-2 border-gray-300 border-t-blue-600",
         sizeClasses[size],
         className

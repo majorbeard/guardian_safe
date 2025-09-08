@@ -1,90 +1,50 @@
 import { useEffect } from "preact/hooks";
-import { authState, authActions } from "./store/auth";
-import { toasts, notificationActions } from "./store/notifications";
-import { wsService } from "./services/websocket";
-import { apiService } from "./services/api";
-
-// Components
-import LoginPage from "./pages/LoginPage";
-import Dashboard from "./pages/Dashboard";
-import LoadingSpinner from "./components/LoadingSpinner";
-import { ToastContainer } from "./components/NotificationToast";
+import { authService } from "./services/auth";
+import { dataService } from "./services/data";
+import { isAuthenticated, isLoading, currentUser } from "./store/auth";
+import { LoginPage } from "./components/LoginPage";
+import { OwnerDashboard } from "./components/OwnerDashboard";
+import { AdminDashboard } from "./components/AdminDashboard";
+import { ChangePasswordModal } from "./components/ChangePasswordModal";
+import { LoadingSpinner } from "./components/LoadingSpinner";
 
 export function App() {
-  const toastList = toasts.value;
+  const authenticated = isAuthenticated.value;
+  const loading = isLoading.value;
+  const user = currentUser.value;
 
-  // Initialize auth state on app load
   useEffect(() => {
-    const initAuth = async () => {
-      authActions.setLoading(true);
-
-      try {
-        const response = await apiService.getCurrentUser();
-        if (response.success && response.data) {
-          authActions.setUser(response.data);
-          // Connect WebSocket for authenticated users
-          wsService.connect();
-          notificationActions.success(
-            "Welcome Back",
-            `Hello ${response.data.username}!`
-          );
-        } else {
-          authActions.setLoading(false);
-        }
-      } catch (error) {
-        console.error("Auth initialization failed:", error);
-        notificationActions.error(
-          "Connection Error",
-          "Failed to connect to server"
-        );
-        authActions.setLoading(false);
-      }
-    };
-
-    initAuth();
-
-    // Cleanup WebSocket on unmount
-    return () => {
-      wsService.disconnect();
-    };
+    // Initialize auth and data services
+    authService.initialize();
   }, []);
 
-  // Show loading spinner during auth check
-  if (authState.value.loading) {
+  useEffect(() => {
+    // Load data when user is authenticated
+    if (authenticated && user) {
+      dataService.loadUserData();
+      dataService.setupRealtimeSubscriptions();
+    }
+  }, [authenticated, user]);
+
+  if (loading) {
     return (
-      <>
-        <div class="min-h-screen bg-gray-50 flex items-center justify-center">
-          <LoadingSpinner size="large" />
-        </div>
-        <ToastContainer
-          toasts={toastList}
-          onClose={notificationActions.removeToast}
-        />
-      </>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <LoadingSpinner size="large" />
+      </div>
     );
   }
 
-  // Show login page if not authenticated
-  if (!authState.value.isAuthenticated) {
-    return (
-      <>
-        <LoginPage />
-        <ToastContainer
-          toasts={toastList}
-          onClose={notificationActions.removeToast}
-        />
-      </>
-    );
+  if (!authenticated) {
+    return <LoginPage />;
   }
 
-  // Show main dashboard
   return (
     <>
-      <Dashboard />
-      <ToastContainer
-        toasts={toastList}
-        onClose={notificationActions.removeToast}
-      />
+      {user?.must_change_password && <ChangePasswordModal />}
+
+      {user?.role === "owner" ? <OwnerDashboard /> : <AdminDashboard />}
     </>
   );
 }
+
+export default App;

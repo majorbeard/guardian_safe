@@ -1,145 +1,51 @@
-// User and Authentication Types
-export type UserRole = "admin" | "courier" | "auditor";
+export type UserRole = "owner" | "admin";
 
 export interface User {
   id: string;
+  email: string;
   username: string;
   role: UserRole;
-  createdAt: Date;
-  lastLogin?: Date;
-  isActive: boolean;
+  created_by?: string;
+  must_change_password: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface AuthState {
-  isAuthenticated: boolean;
-  user: User | null;
-  loading: boolean;
-}
-
-// Safe and Hardware Types
 export interface Safe {
   id: string;
-  serialNumber: string;
+  serial_number: string;
+  device_hash: string;
   status: SafeStatus;
-  batteryLevel: number;
-  isLocked: boolean;
-  isTampered: boolean;
-  location: {
-    lat: number;
-    lng: number;
-    lastUpdate: Date;
-  };
-  assignedTrip?: string;
-  lastMaintenance?: Date;
-  firmwareVersion: string;
+  battery_level: number;
+  is_locked: boolean;
+  tracking_device_id?: string;
+  assigned_to: string;
+  last_update?: string;
+  created_at: string;
 }
 
-export type SafeStatus =
-  | "active"
-  | "inactive"
-  | "maintenance"
-  | "error"
-  | "offline";
+export type SafeStatus = "active" | "inactive" | "maintenance" | "offline";
 
-export interface SafeEvent {
-  id: string;
-  safeId: string;
-  type: "unlock" | "lock" | "tamper" | "battery_low" | "gps_update" | "error";
-  timestamp: Date;
-  data: Record<string, any>;
-  severity: "low" | "medium" | "high" | "critical";
-}
-
-// Trip Management Types
 export interface Trip {
-  clientEmail: any;
-  priority: string;
   id: string;
-  clientName: string;
-  pickupAddress: string;
-  deliveryAddress: string;
-  assignedCourier: string;
-  assignedSafe: string;
+  safe_id: string;
+  client_name: string;
+  pickup_address: string;
+  delivery_address: string;
   status: TripStatus;
-  createdAt: Date;
-  scheduledPickup: Date;
-  scheduledDelivery: Date;
-  actualPickup?: Date;
-  actualDelivery?: Date;
-  otpCode?: string;
+  scheduled_pickup: string;
+  scheduled_delivery: string;
   instructions?: string;
-  value?: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }
 
-export type TripStatus =
-  | "pending"
-  | "assigned"
-  | "in_transit"
-  | "delivered"
-  | "cancelled"
-  | "failed";
+export type TripStatus = "pending" | "in_transit" | "delivered" | "cancelled";
 
-// Real-time WebSocket Types
-export interface WebSocketMessage {
-  type: "safe_update" | "trip_update" | "alert" | "heartbeat";
-  data: any;
-  timestamp: Date;
-}
-
-export interface SafeUpdate {
-  safeId: string;
-  batteryLevel?: number;
-  location?: { lat: number; lng: number };
-  status?: SafeStatus;
-  isLocked?: boolean;
-  isTampered?: boolean;
-}
-
-export interface Alert {
-  id: string;
-  type: "tamper" | "battery_low" | "offline" | "emergency";
-  safeId: string;
-  message: string;
-  timestamp: Date;
-  acknowledged: boolean;
-  severity: "low" | "medium" | "high" | "critical";
-}
-
-// API Response Types
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  message?: string;
-}
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  hasMore: boolean;
-}
-
-// Audit and Reporting Types
-export interface AuditLog {
-  id: string;
-  userId: string;
-  userRole: UserRole;
-  action: string;
-  resource: string;
-  resourceId?: string;
-  timestamp: Date;
-  ipAddress?: string;
-  details: Record<string, any>;
-}
-
-export interface SystemStats {
-  totalSafes: number;
-  activeSafes: number;
-  offlineSafes: number;
-  activeTrips: number;
-  completedTripsToday: number;
-  averageBatteryLevel: number;
-  criticalAlerts: number;
+export interface AuthState {
+  user: User | null;
+  loading: boolean;
+  isAuthenticated: boolean;
 }
