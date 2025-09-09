@@ -17,8 +17,8 @@ export function CreateUserModal({ onClose }: CreateUserModalProps) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showCredentials, setShowCredentials] = useState(false);
-  const [createdUser, setCreatedUser] = useState<any>(null);
+  const [showCredentials] = useState(false);
+  const [createdUser] = useState<any>(null);
 
   const user = currentUser.value;
 
@@ -44,8 +44,9 @@ export function CreateUserModal({ onClose }: CreateUserModalProps) {
       });
 
       if (result.success && result.user) {
-        setCreatedUser(result.user);
-        setShowCredentials(true);
+        // Show success message instead of credentials screen
+        alert(result.message || "User created successfully!");
+        onClose();
       } else {
         setError(result.error || "Failed to create user");
       }

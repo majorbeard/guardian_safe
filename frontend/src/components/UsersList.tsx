@@ -1,5 +1,5 @@
 import { useState, useEffect } from "preact/hooks";
-import { User, Mail, Calendar, Shield } from "lucide-preact";
+import { User, Calendar, Shield } from "lucide-preact";
 import { supabase } from "../lib/supabase";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { format } from "date-fns";
@@ -7,7 +7,6 @@ import { format } from "date-fns";
 interface UserData {
   id: string;
   username: string;
-  email: string;
   role: string;
   is_active: boolean;
   created_at: string;
@@ -26,8 +25,8 @@ export function UsersList() {
   const loadUsers = async () => {
     try {
       const { data, error } = await supabase
-        .from("users")
-        .select("id, username, email, role, is_active, created_at, created_by")
+        .from("profiles") // Changed from "users"
+        .select("id, username, role, is_active, created_at, created_by")
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -45,7 +44,7 @@ export function UsersList() {
   const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
     try {
       const { error } = await supabase
-        .from("users")
+        .from("profiles") // Changed from "users"
         .update({ is_active: !currentStatus })
         .eq("id", userId);
 
@@ -108,10 +107,6 @@ export function UsersList() {
                       </h4>
                       <div className="flex items-center space-x-4 text-sm text-gray-500">
                         <div className="flex items-center space-x-1">
-                          <Mail className="h-3 w-3" />
-                          <span>{user.email}</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
                           <Calendar className="h-3 w-3" />
                           <span>
                             Joined{" "}
@@ -170,10 +165,6 @@ export function UsersList() {
                         {user.username}
                       </h4>
                       <div className="flex items-center space-x-4 text-sm text-gray-500">
-                        <div className="flex items-center space-x-1">
-                          <Mail className="h-3 w-3" />
-                          <span>{user.email}</span>
-                        </div>
                         <div className="flex items-center space-x-1">
                           <Calendar className="h-3 w-3" />
                           <span>

@@ -11,7 +11,6 @@ interface CreateSafeModalProps {
 interface AdminUser {
   id: string;
   username: string;
-  email: string;
 }
 
 export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
@@ -33,8 +32,8 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
   const loadAdminUsers = async () => {
     try {
       const { data, error } = await supabase
-        .from("users")
-        .select("id, username, email")
+        .from("profiles") // Changed from "users"
+        .select("id, username")
         .eq("role", "admin")
         .eq("is_active", true)
         .order("username");
@@ -205,7 +204,7 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
                   <option value="">Select an admin user</option>
                   {adminUsers.map((user) => (
                     <option key={user.id} value={user.id}>
-                      {user.username} ({user.email})
+                      {user.username}
                     </option>
                   ))}
                 </select>

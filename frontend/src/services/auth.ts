@@ -20,10 +20,18 @@ class AuthService {
       }
 
       if (session?.user) {
-        const userProfile = await this.getUserProfile(session.user.id);
-        if (userProfile) {
-          authActions.setUser(userProfile);
-        } else {
+        try {
+          const userProfile = await this.getUserProfile(session.user.id);
+          if (userProfile) {
+            authActions.setUser(userProfile);
+          } else {
+            console.log("No profile found for user, logging out");
+            await supabase.auth.signOut();
+            authActions.setLoading(false);
+          }
+        } catch (profileError) {
+          console.error("Error fetching user profile:", profileError);
+          await supabase.auth.signOut();
           authActions.setLoading(false);
         }
       } else {
@@ -33,9 +41,20 @@ class AuthService {
       // Listen for auth changes - Supabase handles this automatically
       supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === "SIGNED_IN" && session?.user) {
-          const userProfile = await this.getUserProfile(session.user.id);
-          if (userProfile) {
-            authActions.setUser(userProfile);
+          try {
+            const userProfile = await this.getUserProfile(session.user.id);
+            if (userProfile) {
+              authActions.setUser(userProfile);
+            } else {
+              console.log("No profile found after sign in");
+              await supabase.auth.signOut();
+            }
+          } catch (profileError) {
+            console.error(
+              "Error fetching profile after sign in:",
+              profileError
+            );
+            await supabase.auth.signOut();
           }
         } else if (event === "SIGNED_OUT") {
           authActions.logout();
@@ -89,7 +108,7 @@ class AuthService {
     } = await supabase.auth.getUser();
     if (user) {
       await supabase
-        .from("profiles") // Using profiles table instead of users
+        .from("profiles") // Using profiles table
         .update({ must_change_password: false })
         .eq("id", user.id);
 
@@ -99,43 +118,67 @@ class AuthService {
     return { success: true };
   }
 
-  // Owner creates admin users through Supabase Auth Admin API
-  async inviteUser(
-    email: string,
-    userData: {
-      username: string;
-      role: "admin";
-    }
-  ) {
-    // Send invite email - user sets their own password
-    const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-      data: {
-        username: userData.username,
-        role: userData.role,
-        must_change_password: false, // They set password via invite
-      },
-    });
+  // Create users using signup with email verification
+  async createUser(userData: {
+    email: string;
+    username: string;
+    password: string;
+    role: "admin";
+    created_by?: string;
+  }) {
+    try {
+      // Use sign up with email verification instead of admin creation
+      const { data, error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            username: userData.username,
+            role: userData.role,
+            must_change_password: true,
+          },
+          emailRedirectTo: `${window.location.origin}/login`,
+        },
+      });
 
-    if (error) {
-      return { success: false, error: error.message };
-    }
+      if (error) {
+        return { success: false, error: error.message };
+      }
 
-    return { success: true, data };
+      return {
+        success: true,
+        user: data.user,
+        message:
+          "User created! They will receive a confirmation email to activate their account.",
+      };
+    } catch (err) {
+      console.error("Signup error:", err);
+      return {
+        success: false,
+        error: "Failed to create user. Please try again.",
+      };
+    }
   }
 
   private async getUserProfile(userId: string): Promise<User | null> {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .eq("is_active", true)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .eq("is_active", true)
+        .single();
 
-    if (error || !data) {
+      if (error) {
+        console.error("Failed to get user profile:", error);
+        return null;
+      }
+
+      return data;
+    } catch (err) {
+      console.error("Exception getting user profile:", err);
       return null;
     }
-
-    return data;
   }
 }
 

@@ -1,7 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { dataActions } from "../store/data";
 import { currentUser } from "../store/auth";
-import type { Safe, Trip } from "../types";
+import type { Safe, Trip, SafeStatus, TripStatus } from "../types";
 
 class DataService {
   private safesSubscription: any = null;
@@ -99,6 +99,36 @@ class DataService {
     }
 
     // Real-time subscription will update the store automatically
+    return { success: true, trip: data };
+  }
+
+  async updateSafeStatus(safeId: string, updates: { status: SafeStatus }) {
+    const { data, error } = await supabase
+      .from("safes")
+      .update(updates)
+      .eq("id", safeId)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return { success: true, safe: data };
+  }
+
+  async updateTripStatus(tripId: string, status: TripStatus) {
+    const { data, error } = await supabase
+      .from("trips")
+      .update({ status })
+      .eq("id", tripId)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
     return { success: true, trip: data };
   }
 
