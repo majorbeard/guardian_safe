@@ -27,22 +27,43 @@ export interface Safe {
 
 export type SafeStatus = "active" | "inactive" | "maintenance" | "offline";
 
+// Updated Trip interface with new optional fields
 export interface Trip {
   id: string;
   safe_id: string;
   client_name: string;
+  client_phone?: string;
+  client_email?: string;
   pickup_address: string;
+  pickup_contact_name?: string;
+  pickup_contact_phone?: string;
   delivery_address: string;
+  delivery_contact_name?: string;
+  delivery_contact_phone?: string;
   status: TripStatus;
   scheduled_pickup: string;
   scheduled_delivery: string;
-  instructions?: string;
+  priority?: TripPriority; // Optional for backward compatibility
+  special_instructions?: string;
+  delivery_notes?: string;
+  requires_signature?: boolean;
+  recurring_config?: {
+    frequency: "daily" | "weekly" | "monthly";
+    end_date?: string;
+    days_of_week?: number[];
+  };
+  recurring_parent_id?: string;
+  actual_pickup_time?: string;
+  actual_delivery_time?: string;
+  cancellation_reason?: string;
+  cancelled_at?: string;
   created_by: string;
   created_at: string;
   updated_at: string;
 }
 
 export type TripStatus = "pending" | "in_transit" | "delivered" | "cancelled";
+export type TripPriority = "low" | "normal" | "high" | "urgent";
 
 export interface AuthState {
   user: User | null;
