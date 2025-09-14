@@ -29,6 +29,7 @@ export type SafeStatus = "active" | "inactive" | "maintenance" | "offline";
 
 // Updated Trip interface with new optional fields
 export interface Trip {
+  trip: any;
   id: string;
   safe_id: string;
   client_name: string;
@@ -43,7 +44,7 @@ export interface Trip {
   status: TripStatus;
   scheduled_pickup: string;
   scheduled_delivery: string;
-  priority?: TripPriority; // Optional for backward compatibility
+  priority?: TripPriority;
   special_instructions?: string;
   delivery_notes?: string;
   requires_signature?: boolean;
@@ -57,6 +58,8 @@ export interface Trip {
   actual_delivery_time?: string;
   cancellation_reason?: string;
   cancelled_at?: string;
+  tracking_token?: string;
+  customer_tracking_enabled?: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;

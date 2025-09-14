@@ -5,6 +5,7 @@ import { currentUser, isOwner } from "../store/auth";
 import { dataService } from "../services/data";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { format, isToday, isPast } from "date-fns";
+import { Copy, ExternalLink } from "lucide-preact";
 
 interface TripsListProps {
   limit?: number;
@@ -13,6 +14,7 @@ interface TripsListProps {
 
 export function TripsList({ limit, showActions = true }: TripsListProps) {
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  const [copyingTracking, setCopyingTracking] = useState<string | null>(null);
 
   const user = currentUser.value;
   const isOwnerRole = isOwner.value;
@@ -85,6 +87,30 @@ export function TripsList({ limit, showActions = true }: TripsListProps) {
       </div>
     );
   }
+
+  const copyTrackingUrl = async (trackingToken: string, tripId: string) => {
+    setCopyingTracking(tripId);
+    try {
+      const trackingUrl = dataService.generateTrackingUrl(trackingToken);
+      await navigator.clipboard.writeText(trackingUrl);
+      // You could add a toast notification here
+      setTimeout(() => setCopyingTracking(null), 1000);
+    } catch (err) {
+      console.error("Failed to copy tracking URL:", err);
+      setCopyingTracking(null);
+    }
+  };
+
+  const toggleTracking = async (tripId: string, currentEnabled: boolean) => {
+    setUpdatingStatus(tripId);
+    try {
+      await dataService.toggleCustomerTracking(tripId, !currentEnabled);
+    } catch (error) {
+      console.error("Failed to toggle customer tracking:", error);
+    } finally {
+      setUpdatingStatus(null);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -215,10 +241,10 @@ export function TripsList({ limit, showActions = true }: TripsListProps) {
               </div>
             </div>
 
-            {trip.instructions && (
+            {trip && trip.special_instructions && (
               <div className="mb-3 p-3 bg-blue-50 rounded border border-blue-200">
                 <p className="text-sm text-blue-800">
-                  <strong>Instructions:</strong> {trip.instructions}
+                  <strong>Instructions:</strong> {trip.special_instructions}
                 </p>
               </div>
             )}
@@ -231,7 +257,76 @@ export function TripsList({ limit, showActions = true }: TripsListProps) {
                   Created {format(new Date(trip.created_at), "MMM d, HH:mm")}
                 </div>
 
-                <div className="flex space-x-2">
+                <div className="flex items-center space-x-2">
+                  {/* Customer Tracking Controls - Safe property access */}
+                  {trip && trip.client_email && trip.tracking_token && (
+                    <div className="flex items-center space-x-1 mr-3 border-r border-gray-200 pr-3">
+                      {trip.customer_tracking_enabled ?? false ? (
+                        <>
+                          <button
+                            onClick={() =>
+                              copyTrackingUrl(trip.tracking_token!, trip.id)
+                            }
+                            disabled={copyingTracking === trip.id}
+                            className="text-blue-600 hover:text-blue-800 text-sm flex items-center space-x-1"
+                            title="Copy customer tracking link"
+                          >
+                            {copyingTracking === trip.id ? (
+                              <LoadingSpinner size="small" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                            <span className="hidden sm:inline">
+                              {copyingTracking === trip.id
+                                ? "Copied!"
+                                : "Copy Link"}
+                            </span>
+                          </button>
+                          <button
+                            onClick={() =>
+                              window.open(
+                                dataService.generateTrackingUrl(
+                                  trip.tracking_token!
+                                ),
+                                "_blank"
+                              )
+                            }
+                            className="text-green-600 hover:text-green-800 text-sm"
+                            title="View customer tracking page"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() =>
+                              toggleTracking(
+                                trip.id,
+                                trip.customer_tracking_enabled ?? false
+                              )
+                            }
+                            className="text-red-600 hover:text-red-800 text-sm"
+                            title="Disable customer tracking"
+                          >
+                            Hide
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() =>
+                            toggleTracking(
+                              trip.id,
+                              trip.customer_tracking_enabled ?? false
+                            )
+                          }
+                          className="text-blue-600 hover:text-blue-800 text-sm"
+                          title="Enable customer tracking"
+                        >
+                          Enable Tracking
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Existing Status Actions */}
                   {updatingStatus === trip.id ? (
                     <LoadingSpinner size="small" />
                   ) : (

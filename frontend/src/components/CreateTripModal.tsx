@@ -9,6 +9,7 @@ import {
   Mail,
   AlertTriangle,
   Copy,
+  ExternalLink,
 } from "lucide-preact";
 import { dataService, type TripBookingData } from "../services/data";
 import { LoadingSpinner } from "./LoadingSpinner";
@@ -719,6 +720,26 @@ export function CreateTripModal({
                 </div>
               )}
             </div>
+
+            {/* Customer Tracking Info */}
+            {formData.client_email && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2 mb-2">
+                  <ExternalLink className="h-4 w-4 text-blue-600" />
+                  <h4 className="font-medium text-blue-800">
+                    Customer Tracking
+                  </h4>
+                </div>
+                <p className="text-sm text-blue-700 mb-2">
+                  A secure tracking link will be automatically sent to:{" "}
+                  <strong>{formData.client_email}</strong>
+                </p>
+                <p className="text-xs text-blue-600">
+                  The customer will receive real-time updates on their secure
+                  transport without accessing your dashboard.
+                </p>
+              </div>
+            )}
 
             {/* Warnings */}
             {warnings.length > 0 && (
