@@ -117,6 +117,97 @@ class DataService {
   }
 
   // Enhanced trip creation with validation and new fields
+  async createTrip(tripData: any) {
+    const user = currentUser.value;
+    if (!user) {
+      return { success: false, error: "User not authenticated" };
+    }
+
+    // Enable customer tracking if client email is provided (for owner scenario 2)
+    const customerTrackingEnabled = !!tripData.client_email;
+
+    // Prepare enhanced trip data - includes new optional fields
+    const enhancedTripData = {
+      ...tripData,
+      created_by: user.id,
+      status: "pending",
+      priority: tripData.priority || "normal",
+      requires_signature: tripData.requires_signature || false,
+      customer_tracking_enabled: customerTrackingEnabled,
+      // Only include new fields if they're provided (backward compatibility)
+      ...(tripData.client_phone && { client_phone: tripData.client_phone }),
+      ...(tripData.client_email && { client_email: tripData.client_email }),
+      ...(tripData.pickup_contact_name && {
+        pickup_contact_name: tripData.pickup_contact_name,
+      }),
+      ...(tripData.pickup_contact_phone && {
+        pickup_contact_phone: tripData.pickup_contact_phone,
+      }),
+      ...(tripData.delivery_contact_name && {
+        delivery_contact_name: tripData.delivery_contact_name,
+      }),
+      ...(tripData.delivery_contact_phone && {
+        delivery_contact_phone: tripData.delivery_contact_phone,
+      }),
+      ...(tripData.delivery_notes && {
+        delivery_notes: tripData.delivery_notes,
+      }),
+      // Fix the recurring field mapping
+      ...(tripData.recurring?.enabled && {
+        recurring_config: tripData.recurring,
+      }),
+    };
+
+    // Remove the 'recurring' field that doesn't exist in database
+    delete enhancedTripData.recurring;
+
+    try {
+      // Basic conflict check if we have the data
+      if (
+        enhancedTripData.safe_id &&
+        enhancedTripData.scheduled_pickup &&
+        enhancedTripData.scheduled_delivery
+      ) {
+        const conflicts = await this.checkSchedulingConflicts(
+          enhancedTripData.safe_id,
+          enhancedTripData.scheduled_pickup,
+          enhancedTripData.scheduled_delivery
+        );
+
+        if (conflicts.length > 0) {
+          return {
+            success: false,
+            error: `Security assessment detected conflict with existing secure transport for ${conflicts[0].client_name}`,
+          };
+        }
+      }
+
+      const { data, error } = await supabase
+        .from("trips")
+        .insert(enhancedTripData)
+        .select("*, tracking_token") // Make sure to select tracking_token
+        .single();
+
+      if (error) {
+        console.error("Supabase error:", error);
+        return { success: false, error: error.message };
+      }
+
+      // Send emails
+      if (enhancedTripData.client_email) {
+        await this.sendTripConfirmationEmail(data);
+      }
+
+      // Real-time subscription will update the store automatically
+      return { success: true, trip: data };
+    } catch (err) {
+      console.error("Error creating trip:", err);
+      return {
+        success: false,
+        error: "Failed to create secure transport booking. Please try again.",
+      };
+    }
+  }
 
   // Validate trip data before submission
   validateTripData(
@@ -232,7 +323,7 @@ class DataService {
     }
   }
 
-  // Send trip confirmation email (placeholder for now)
+  // Send combined trip confirmation + tracking email
   private async sendTripConfirmationEmail(trip: Trip) {
     try {
       if (!trip.client_email) {
@@ -242,8 +333,18 @@ class DataService {
 
       console.log("Sending confirmation email to:", trip.client_email);
 
+      // Generate tracking URL if customer tracking is enabled
+      const trackingUrl =
+        trip.customer_tracking_enabled && trip.tracking_token
+          ? this.generateTrackingUrl(trip.tracking_token)
+          : null;
+
+      if (trackingUrl) {
+        console.log("Including tracking URL:", trackingUrl);
+      }
+
       const { data, error } = await supabase.functions.invoke(
-        "send-trip-confirmation",
+        "send-trip-confirmation", // One function for both
         {
           body: {
             to: trip.client_email,
@@ -256,6 +357,8 @@ class DataService {
             special_instructions: trip.special_instructions,
             requires_signature: trip.requires_signature || false,
             priority: trip.priority || "normal",
+            safe_serial: "Unknown",
+            tracking_url: trackingUrl, // NEW: Include tracking URL
           },
         }
       );
@@ -267,6 +370,87 @@ class DataService {
       }
     } catch (error) {
       console.error("Exception sending confirmation email:", error);
+    }
+  }
+
+  // Generate customer tracking URL
+  generateTrackingUrl(trackingToken: string): string {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/track/${trackingToken}`;
+  }
+
+  // Get trip by tracking token (public access)
+  async getTripByTrackingToken(trackingToken: string) {
+    try {
+      const { data, error } = await supabase
+        .from("trips")
+        .select(
+          `
+          id,
+          client_name,
+          pickup_address,
+          delivery_address,
+          status,
+          scheduled_pickup,
+          scheduled_delivery,
+          actual_pickup_time,
+          actual_delivery_time,
+          priority,
+          special_instructions,
+          requires_signature,
+          created_at,
+          updated_at,
+          safe_id,
+          safes!inner(
+            serial_number,
+            status,
+            battery_level,
+            last_update
+          )
+        `
+        )
+        .eq("tracking_token", trackingToken)
+        .eq("customer_tracking_enabled", true)
+        .single();
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      // Transform the data to match our interface (safes is returned as array, we need single object)
+      const transformedData = {
+        ...data,
+        safes: Array.isArray(data.safes) ? data.safes[0] : data.safes,
+      };
+
+      return { success: true, trip: transformedData };
+    } catch (err) {
+      console.error("Error fetching trip by tracking token:", err);
+      return { success: false, error: "Failed to load tracking information" };
+    }
+  }
+
+  // Enable/disable customer tracking for a trip
+  async toggleCustomerTracking(tripId: string, enabled: boolean) {
+    try {
+      const { data, error } = await supabase
+        .from("trips")
+        .update({
+          customer_tracking_enabled: enabled,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tripId)
+        .select()
+        .single();
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, trip: data };
+    } catch (err) {
+      console.error("Error toggling customer tracking:", err);
+      return { success: false, error: "Failed to update tracking settings" };
     }
   }
 
@@ -288,16 +472,85 @@ class DataService {
   async updateTripStatus(tripId: string, status: TripStatus) {
     const { data, error } = await supabase
       .from("trips")
-      .update({ status })
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+        // Set actual times when status changes
+        ...(status === "in_transit" && {
+          actual_pickup_time: new Date().toISOString(),
+        }),
+        ...(status === "delivered" && {
+          actual_delivery_time: new Date().toISOString(),
+        }),
+      })
       .eq("id", tripId)
-      .select()
+      .select("*, safes(serial_number)")
       .single();
 
     if (error) {
       throw new Error(error.message);
     }
 
+    // Send status update email if customer tracking is enabled
+    if (data.customer_tracking_enabled && data.client_email) {
+      await this.sendStatusUpdateEmail(data, status);
+    }
+
     return { success: true, trip: data };
+  }
+
+  // Send status update email
+  private async sendStatusUpdateEmail(trip: any, newStatus: string) {
+    try {
+      console.log(
+        `Sending status update email: ${newStatus} to ${trip.client_email}`
+      );
+
+      const statusMessages = {
+        in_transit:
+          "Your items have been securely collected and are now in transit",
+        delivered: "Your secure transport has been completed successfully",
+        cancelled: "Your secure transport has been cancelled",
+      };
+
+      // Get current session for auth headers
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const { error } = await supabase.functions.invoke(
+        "send-customer-tracking", // Reuse same function
+        {
+          headers: {
+            Authorization: `Bearer ${session?.access_token}`,
+          },
+          body: {
+            to: trip.client_email,
+            trip_id: trip.id,
+            client_name: trip.client_name,
+            pickup_address: trip.pickup_address,
+            delivery_address: trip.delivery_address,
+            scheduled_pickup: trip.scheduled_pickup,
+            scheduled_delivery: trip.scheduled_delivery,
+            special_instructions: trip.special_instructions,
+            priority: trip.priority || "normal",
+            tracking_url: this.generateTrackingUrl(trip.tracking_token),
+            status_update: true, // Flag for status update email
+            new_status: newStatus,
+            status_message:
+              statusMessages[newStatus as keyof typeof statusMessages],
+          },
+        }
+      );
+
+      if (error) {
+        console.error("Error sending status update email:", error);
+      } else {
+        console.log("Status update email sent successfully");
+      }
+    } catch (error) {
+      console.error("Exception sending status update email:", error);
+    }
   }
 
   // Update an existing trip
@@ -486,221 +739,6 @@ class DataService {
     // This catches any other valid international formats
     const generalPattern = /^[\+]?[\d\s\-\(\)]{7,15}$/;
     return generalPattern.test(cleanPhone);
-  }
-
-  // Generate customer tracking URL
-  generateTrackingUrl(trackingToken: string): string {
-    const baseUrl = window.location.origin;
-    return `${baseUrl}/track/${trackingToken}`;
-  }
-
-  // Get trip by tracking token (public access)
-  async getTripByTrackingToken(trackingToken: string) {
-    try {
-      const { data, error } = await supabase
-        .from("trips")
-        .select(
-          `
-        id,
-        client_name,
-        pickup_address,
-        delivery_address,
-        status,
-        scheduled_pickup,
-        scheduled_delivery,
-        actual_pickup_time,
-        actual_delivery_time,
-        priority,
-        special_instructions,
-        requires_signature,
-        created_at,
-        updated_at,
-        safe_id,
-        safes!inner(
-          serial_number,
-          status,
-          battery_level,
-          last_update
-        )
-      `
-        )
-        .eq("tracking_token", trackingToken)
-        .eq("customer_tracking_enabled", true)
-        .single();
-
-      if (error) {
-        return { success: false, error: error.message };
-      }
-
-      // Transform the data to match our interface (safes is returned as array, we need single object)
-      const transformedData = {
-        ...data,
-        safes: Array.isArray(data.safes) ? data.safes[0] : data.safes,
-      };
-
-      return { success: true, trip: transformedData };
-    } catch (err) {
-      console.error("Error fetching trip by tracking token:", err);
-      return { success: false, error: "Failed to load tracking information" };
-    }
-  }
-
-  // Enable/disable customer tracking for a trip
-  async toggleCustomerTracking(tripId: string, enabled: boolean) {
-    try {
-      const { data, error } = await supabase
-        .from("trips")
-        .update({
-          customer_tracking_enabled: enabled,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", tripId)
-        .select()
-        .single();
-
-      if (error) {
-        return { success: false, error: error.message };
-      }
-
-      return { success: true, trip: data };
-    } catch (err) {
-      console.error("Error toggling customer tracking:", err);
-      return { success: false, error: "Failed to update tracking settings" };
-    }
-  }
-
-  // Send tracking link to customer via email
-  private async sendCustomerTrackingEmail(trip: Trip) {
-    if (!trip.client_email || !trip.tracking_token) {
-      console.log("No client email or tracking token available");
-      return;
-    }
-
-    try {
-      const trackingUrl = this.generateTrackingUrl(trip.tracking_token);
-
-      console.log("Sending customer tracking email to:", trip.client_email);
-      console.log("Tracking URL:", trackingUrl);
-
-      // This would call your email service (Supabase Edge Function, SendGrid, etc.)
-      const { data, error } = await supabase.functions.invoke(
-        "send-customer-tracking",
-        {
-          body: {
-            to: trip.client_email,
-            client_name: trip.client_name,
-            tracking_url: trackingUrl,
-            trip_id: trip.id,
-            pickup_address: trip.pickup_address,
-            delivery_address: trip.delivery_address,
-            scheduled_pickup: trip.scheduled_pickup,
-            scheduled_delivery: trip.scheduled_delivery,
-          },
-        }
-      );
-
-      if (error) {
-        console.error("Error sending tracking email:", error);
-      } else {
-        console.log("Customer tracking email sent successfully:", data);
-      }
-    } catch (error) {
-      console.error("Exception sending tracking email:", error);
-    }
-  }
-
-  async createTrip(tripData: any) {
-    const user = currentUser.value;
-    if (!user) {
-      return { success: false, error: "User not authenticated" };
-    }
-
-    // Enable customer tracking if client email is provided (for owner scenario 2)
-    const customerTrackingEnabled = !!tripData.client_email;
-
-    const enhancedTripData = {
-      ...tripData,
-      created_by: user.id,
-      status: "pending",
-      priority: tripData.priority || "normal",
-      requires_signature: tripData.requires_signature || false,
-      customer_tracking_enabled: customerTrackingEnabled, // NEW
-      // ... rest of existing logic
-      ...(tripData.client_phone && { client_phone: tripData.client_phone }),
-      ...(tripData.client_email && { client_email: tripData.client_email }),
-      ...(tripData.pickup_contact_name && {
-        pickup_contact_name: tripData.pickup_contact_name,
-      }),
-      ...(tripData.pickup_contact_phone && {
-        pickup_contact_phone: tripData.pickup_contact_phone,
-      }),
-      ...(tripData.delivery_contact_name && {
-        delivery_contact_name: tripData.delivery_contact_name,
-      }),
-      ...(tripData.delivery_contact_phone && {
-        delivery_contact_phone: tripData.delivery_contact_phone,
-      }),
-      ...(tripData.delivery_notes && {
-        delivery_notes: tripData.delivery_notes,
-      }),
-      ...(tripData.recurring?.enabled && {
-        recurring_config: tripData.recurring,
-      }),
-    };
-
-    delete enhancedTripData.recurring;
-
-    try {
-      // Check conflicts (existing logic)
-      if (
-        enhancedTripData.safe_id &&
-        enhancedTripData.scheduled_pickup &&
-        enhancedTripData.scheduled_delivery
-      ) {
-        const conflicts = await this.checkSchedulingConflicts(
-          enhancedTripData.safe_id,
-          enhancedTripData.scheduled_pickup,
-          enhancedTripData.scheduled_delivery
-        );
-
-        if (conflicts.length > 0) {
-          return {
-            success: false,
-            error: `Security assessment detected conflict with existing secure transport for ${conflicts[0].client_name}`,
-          };
-        }
-      }
-
-      const { data, error } = await supabase
-        .from("trips")
-        .insert(enhancedTripData)
-        .select("*, tracking_token") // Make sure to select tracking_token
-        .single();
-
-      if (error) {
-        console.error("Supabase error:", error);
-        return { success: false, error: error.message };
-      }
-
-      // Send emails
-      if (enhancedTripData.client_email) {
-        // Send regular trip confirmation
-        await this.sendTripConfirmationEmail(data);
-
-        // Send customer tracking link if enabled
-        if (customerTrackingEnabled) {
-          await this.sendCustomerTrackingEmail(data);
-        }
-      }
-
-      return { success: true, trip: data };
-    } catch (err) {
-      console.error("Error creating trip:", err);
-      return {
-        success: false,
-        error: "Failed to create secure transport booking. Please try again.",
-      };
-    }
   }
 }
 
