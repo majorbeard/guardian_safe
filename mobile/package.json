@@ -9,12 +9,23 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor-community/bluetooth-le": "^7.2.0",
+    "@capacitor/android": "^7.4.3",
     "@capacitor/core": "^7.4.3",
+    "@capacitor/geolocation": "^7.1.5",
+    "@capacitor/haptics": "^7.0.2",
+    "@capacitor/status-bar": "^7.0.3",
+    "@preact/signals": "^2.3.1",
+    "@supabase/supabase-js": "^2.57.4",
     "@tailwindcss/vite": "^4.1.13",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "lucide-preact": "^0.544.0",
     "preact": "^10.26.5",
     "tailwindcss": "^4.1.13"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
     "@preact/preset-vite": "^2.10.1",
     "typescript": "~5.8.3",
     "vite": "^6.3.5"
