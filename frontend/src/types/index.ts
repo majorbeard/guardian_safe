@@ -12,6 +12,17 @@ export interface User {
   updated_at: string;
 }
 
+export interface MobileUser {
+  id: string;
+  safe_id: string;
+  username: string;
+  driver_name?: string;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Safe {
   id: string;
   serial_number: string;
@@ -23,6 +34,7 @@ export interface Safe {
   assigned_to: string;
   last_update?: string;
   created_at: string;
+  mobile_users?: MobileUser[];
 }
 
 export type SafeStatus = "active" | "inactive" | "maintenance" | "offline";
