@@ -2,111 +2,210 @@ import { supabase } from "./supabase";
 import { authActions } from "../store/auth";
 
 class MobileAuthService {
+  private readonly STORAGE_KEY = "guardian_mobile_user";
+
   async initialize() {
     authActions.setLoading(true);
 
+    console.log("🔄 Initializing mobile auth...");
+
     try {
-      // Check if we have stored credentials
-      const storedUser = localStorage.getItem("guardian_mobile_user");
+      // Check for stored user
+      const storedUser = this.getStoredUser();
+
       if (storedUser) {
-        const userData = JSON.parse(storedUser);
-        // Verify user is still active
-        const isValid = await this.validateStoredUser(userData.username);
+        console.log("📱 Found stored user:", storedUser.username);
+
+        // Validate user is still active and get fresh safe data
+        const isValid = await this.validateAndRefreshUser(storedUser);
+
         if (isValid) {
-          authActions.setUser(userData);
+          console.log("✅ Stored user is valid");
           return;
         } else {
-          localStorage.removeItem("guardian_mobile_user");
+          console.log("❌ Stored user is invalid, clearing...");
+          this.clearStoredUser();
         }
       }
+
+      console.log("📱 No valid stored user found");
     } catch (error) {
-      console.error("Auth initialization failed:", error);
-      localStorage.removeItem("guardian_mobile_user");
+      console.error("❌ Auth initialization error:", error);
+      this.clearStoredUser();
     } finally {
       authActions.setLoading(false);
     }
   }
 
   async login(username: string, password: string) {
+    console.log("🔑 Attempting login for:", username);
+
     try {
-      // Hash the password to match stored hash
+      // Step 1: Generate password hash
       const passwordHash = await this.hashPassword(password);
+      console.log("🔐 Generated hash:", passwordHash);
 
-      // Query mobile_users table
-      const { data, error } = await supabase
+      // Step 2: Find user by username first (no password check yet)
+      const { data: users, error: findError } = await supabase
         .from("mobile_users")
-        .select(
-          `
-          id,
-          safe_id,
-          username,
-          driver_name,
-          is_active,
-          created_at,
-          safes!inner(
-            id,
-            serial_number,
-            status,
-            battery_level,
-            is_locked,
-            tracking_device_id
-          )
-        `
-        )
+        .select("*")
         .eq("username", username)
-        .eq("password_hash", passwordHash)
-        .eq("is_active", true)
-        .single();
+        .eq("is_active", true);
 
-      if (error || !data) {
+      console.log("👤 User lookup result:", users);
+      console.log("👤 User lookup error:", findError);
+
+      if (findError) {
+        console.error("❌ Database error:", findError);
+        return { success: false, error: "Database connection error" };
+      }
+
+      if (!users || users.length === 0) {
+        console.log("❌ No user found with username:", username);
         return { success: false, error: "Invalid username or password" };
       }
 
-      // Transform to our user format
+      const user = users[0];
+      console.log("👤 Found user:", user.username);
+      console.log("🔐 Stored hash:", user.password_hash);
+      console.log("🔐 Generated hash:", passwordHash);
+
+      // Step 3: Verify password
+      if (user.password_hash !== passwordHash) {
+        console.log("❌ Password hash mismatch");
+        return { success: false, error: "Invalid username or password" };
+      }
+
+      console.log("✅ Password verified!");
+
+      // Step 4: Get safe information
+      const { data: safe, error: safeError } = await supabase
+        .from("safes")
+        .select("*")
+        .eq("id", user.safe_id)
+        .single();
+
+      console.log("🔒 Safe lookup result:", safe);
+      console.log("🔒 Safe lookup error:", safeError);
+
+      if (safeError || !safe) {
+        console.error("❌ Safe not found:", safeError);
+        return { success: false, error: "Safe not accessible" };
+      }
+
+      // Step 5: Create user object and store
       const mobileUser = {
-        id: data.id,
-        username: data.username,
-        driver_name: data.driver_name,
-        safe_id: data.safe_id,
-        safe: data.safes,
-        is_active: data.is_active,
-        created_at: data.created_at,
+        id: user.id,
+        username: user.username,
+        driver_name: user.driver_name,
+        safe_id: user.safe_id,
+        safe: {
+          id: safe.id,
+          serial_number: safe.serial_number,
+          status: safe.status,
+          battery_level: safe.battery_level,
+          is_locked: safe.is_locked,
+          tracking_device_id: safe.tracking_device_id,
+        },
+        is_active: user.is_active,
+        created_at: user.created_at,
       };
 
-      // Store user data locally
-      localStorage.setItem("guardian_mobile_user", JSON.stringify(mobileUser));
+      console.log("✅ Login successful for:", mobileUser.username);
 
-      // Update auth state
+      // Store and set auth state
+      this.storeUser(mobileUser);
       authActions.setUser(mobileUser);
 
       return { success: true };
-    } catch (err) {
-      console.error("Login error:", err);
+    } catch (error) {
+      console.error("❌ Login exception:", error);
       return { success: false, error: "Login failed. Please try again." };
     }
   }
 
   async logout() {
-    localStorage.removeItem("guardian_mobile_user");
+    console.log("👋 Logging out...");
+    this.clearStoredUser();
     authActions.logout();
   }
 
-  // Validate stored user is still active
-  private async validateStoredUser(username: string): Promise<boolean> {
+  // Validate stored user and refresh their data
+  private async validateAndRefreshUser(storedUser: any): Promise<boolean> {
     try {
-      const { data, error } = await supabase
+      // Check if user still exists and is active
+      const { data: user, error: userError } = await supabase
         .from("mobile_users")
-        .select("is_active")
-        .eq("username", username)
+        .select("*")
+        .eq("username", storedUser.username)
+        .eq("is_active", true)
         .single();
 
-      return !error && data?.is_active === true;
-    } catch {
+      if (userError || !user) {
+        return false;
+      }
+
+      // Get fresh safe data
+      const { data: safe, error: safeError } = await supabase
+        .from("safes")
+        .select("*")
+        .eq("id", user.safe_id)
+        .single();
+
+      if (safeError || !safe) {
+        return false;
+      }
+
+      // Update stored user with fresh data
+      const refreshedUser = {
+        ...user,
+        safe: {
+          id: safe.id,
+          serial_number: safe.serial_number,
+          status: safe.status,
+          battery_level: safe.battery_level,
+          is_locked: safe.is_locked,
+          tracking_device_id: safe.tracking_device_id,
+        },
+      };
+
+      this.storeUser(refreshedUser);
+      authActions.setUser(refreshedUser);
+
+      return true;
+    } catch (error) {
+      console.error("❌ User validation error:", error);
       return false;
     }
   }
 
-  // Hash password to match server-side hash
+  // Utility methods
+  private getStoredUser(): any {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private storeUser(user: any): void {
+    try {
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(user));
+    } catch (error) {
+      console.error("❌ Failed to store user:", error);
+    }
+  }
+
+  private clearStoredUser(): void {
+    try {
+      localStorage.removeItem(this.STORAGE_KEY);
+    } catch (error) {
+      console.error("❌ Failed to clear stored user:", error);
+    }
+  }
+
+  // Hash password using SHA-256
   private async hashPassword(password: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(password);

@@ -23,10 +23,15 @@ class TripsService {
   private subscription: any = null;
 
   // Load trips for current user's safe
+  // Load trips for current user's safe
   async loadTrips() {
     const user = currentUser.value;
-    if (!user?.safe_id) return;
+    if (!user?.safe_id) {
+      console.log("❌ No user or safe_id found:", user);
+      return;
+    }
 
+    console.log("🔍 Loading trips for safe_id:", user.safe_id);
     tripsActions.setLoading(true);
 
     try {
@@ -37,12 +42,16 @@ class TripsService {
         .in("status", ["pending", "in_transit"])
         .order("scheduled_pickup", { ascending: true });
 
+      console.log("📋 Trips query result:", data);
+      console.log("📋 Trips query error:", error);
+
       if (error) {
         console.error("Failed to load trips:", error);
         tripsActions.setError("Failed to load trips");
         return;
       }
 
+      console.log(`✅ Found ${data?.length || 0} trips`);
       tripsActions.setTrips(data || []);
     } catch (err) {
       console.error("Exception loading trips:", err);
@@ -81,6 +90,8 @@ class TripsService {
 
   // Complete trip (change status to delivered)
   async completeTrip(tripId: string) {
+    console.log("🎯 Attempting to complete trip:", tripId);
+
     try {
       const { data, error } = await supabase
         .from("trips")
@@ -93,15 +104,21 @@ class TripsService {
         .select()
         .single();
 
+      console.log("📦 Complete trip result:", data);
+      console.log("📦 Complete trip error:", error);
+
       if (error) {
+        console.error("❌ Failed to complete trip:", error);
         return { success: false, error: error.message };
       }
+
+      console.log("✅ Trip completed successfully!");
 
       // Update local state
       tripsActions.updateTrip(tripId, data);
       return { success: true, trip: data };
     } catch (err) {
-      console.error("Error completing trip:", err);
+      console.error("❌ Exception completing trip:", err);
       return { success: false, error: "Failed to complete trip" };
     }
   }

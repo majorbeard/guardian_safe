@@ -167,31 +167,56 @@ class OTPService {
   }
 
   // Send OTP via email
+  // Send OTP via email
   private async sendOTPEmail(
     trip: any,
     otp: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      const { data, error } = await supabase.functions.invoke(
-        "send-delivery-otp",
+      console.log("📧 Making direct HTTP call to edge function...");
+
+      // Make direct HTTP call instead of using supabase.functions.invoke
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      const response = await fetch(
+        `${supabaseUrl}/functions/v1/send-delivery-otp`,
         {
-          body: {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${anonKey}`,
+            apikey: anonKey,
+          },
+          body: JSON.stringify({
             to: trip.client_email,
             client_name: trip.client_name,
             otp_code: otp,
             trip_id: trip.id,
             delivery_address: trip.delivery_address,
-            driver_location: "At your delivery location", // Could include actual address
-          },
+            driver_location: "At your delivery location",
+          }),
         }
       );
 
-      if (error) {
-        console.error("Email send error:", error);
+      const result = await response.json();
+
+      console.log("📧 Edge function response:", result);
+
+      if (!response.ok) {
+        console.error("Edge function error:", result);
         return { success: false, error: "Failed to send OTP email" };
       }
 
-      return { success: true };
+      if (result.success) {
+        console.log("📧 OTP email sent successfully!");
+        return { success: true };
+      } else {
+        return {
+          success: false,
+          error: result.error || "Failed to send OTP email",
+        };
+      }
     } catch (err) {
       console.error("Email send exception:", err);
       return { success: false, error: "Failed to send OTP email" };
