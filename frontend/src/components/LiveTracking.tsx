@@ -1,87 +1,326 @@
-import { useState, useEffect } from "preact/hooks";
-import { MapPin, Navigation, RefreshCw, Satellite } from "lucide-preact";
+import { useState, useEffect, useRef } from "preact/hooks";
+import {
+  MapPin,
+  Navigation,
+  RefreshCw,
+  Satellite,
+  AlertTriangle,
+  Battery,
+} from "lucide-preact";
 import { LoadingSpinner } from "./LoadingSpinner";
+import { trackneticsService } from "../services/tracknetics";
 import type { Safe } from "../types";
+import { formatDistanceToNow } from "date-fns";
 
 interface LiveTrackingProps {
   safes: Safe[];
 }
 
-interface LocationData {
-  lat: number;
-  lng: number;
-  timestamp: string;
-  accuracy?: number;
-  speed?: number;
+interface SafeLocationData {
+  safeId: string;
+  serialNumber: string;
+  deviceId: string | null;
+  location?: {
+    lat: number;
+    lng: number;
+    accuracy: number;
+    timestamp: number;
+    speed?: number;
+    course?: number;
+    isGPS?: boolean;
+    positionTime?: string;
+  };
+  status: "online" | "offline" | "no_tracker" | "error";
+  error?: string;
+  lastUpdate: Date;
 }
 
 export function LiveTracking({ safes }: LiveTrackingProps) {
-  const [locations, setLocations] = useState<Record<string, LocationData>>({});
+  const [locations, setLocations] = useState<SafeLocationData[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [mapView, setMapView] = useState<"roadmap" | "satellite">("roadmap");
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const googleMapRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<google.maps.Marker[]>([]);
 
-  // Mock tracking API - replace with real implementation
-  const fetchLocation = async (
-    _trackingId: string
-  ): Promise<LocationData | null> => {
-    // Simulate API call delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  // Initialize Google Map
+  const initializeMap = () => {
+    if (!mapRef.current || !window.google) return;
 
-    // Mock data - replace with real tracking API
-    return {
-      lat: -33.9249 + (Math.random() - 0.5) * 0.01,
-      lng: 18.4241 + (Math.random() - 0.5) * 0.01,
-      timestamp: new Date().toISOString(),
-      accuracy: Math.round(5 + Math.random() * 10),
-      speed: Math.round(Math.random() * 60),
-    };
+    const map = new google.maps.Map(mapRef.current, {
+      zoom: 8,
+      center: { lat: -26.2041, lng: 28.0473 }, // Johannesburg center
+      mapTypeId:
+        mapView === "satellite"
+          ? google.maps.MapTypeId.SATELLITE
+          : google.maps.MapTypeId.ROADMAP,
+      styles: [
+        {
+          featureType: "poi",
+          elementType: "labels",
+          stylers: [{ visibility: "off" }],
+        },
+      ],
+    });
+
+    googleMapRef.current = map;
   };
 
-  const updateLocations = async () => {
-    setLoading(true);
-    const newLocations: Record<string, LocationData> = {};
+  // Update map markers
+  const updateMapMarkers = () => {
+    if (!googleMapRef.current) return;
 
-    for (const safe of safes) {
-      if (safe.tracking_device_id && safe.status === "active") {
-        try {
-          const location = await fetchLocation(safe.tracking_device_id);
-          if (location) {
-            newLocations[safe.id] = location;
+    // Clear existing markers
+    markersRef.current.forEach((marker) => marker.setMap(null));
+    markersRef.current = [];
+
+    const bounds = new google.maps.LatLngBounds();
+    let hasValidLocations = false;
+
+    locations.forEach((safeLocation) => {
+      if (!safeLocation.location) return;
+
+      const position = {
+        lat: safeLocation.location.lat,
+        lng: safeLocation.location.lng,
+      };
+
+      const marker = new google.maps.Marker({
+        position,
+        map: googleMapRef.current,
+        title: `Safe ${safeLocation.serialNumber}`,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: safeLocation.status === "online" ? "#10B981" : "#EF4444",
+          fillOpacity: 1,
+          strokeColor: "#FFFFFF",
+          strokeWeight: 2,
+          scale: 8,
+        },
+      });
+
+      // Info window
+      const infoWindow = new google.maps.InfoWindow({
+        content: `
+          <div style="padding: 8px; min-width: 200px;">
+            <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">
+              Safe ${safeLocation.serialNumber}
+            </h3>
+            <div style="font-size: 14px; line-height: 1.4;">
+              <p style="margin: 4px 0;"><strong>Status:</strong> ${getStatusLabel(
+                safeLocation.status
+              )}</p>
+              <p style="margin: 4px 0;"><strong>Location:</strong> ${position.lat.toFixed(
+                6
+              )}, ${position.lng.toFixed(6)}</p>
+              <p style="margin: 4px 0;"><strong>Accuracy:</strong> ±${
+                safeLocation.location.accuracy
+              }m</p>
+              <p style="margin: 4px 0;"><strong>Updated:</strong> ${formatDistanceToNow(
+                safeLocation.lastUpdate
+              )} ago</p>
+            </div>
+          </div>
+        `,
+      });
+
+      marker.addListener("click", () => {
+        infoWindow.open(googleMapRef.current, marker);
+      });
+
+      markersRef.current.push(marker);
+      bounds.extend(position);
+      hasValidLocations = true;
+    });
+
+    // Fit bounds to show all markers
+    if (hasValidLocations) {
+      googleMapRef.current.fitBounds(bounds);
+
+      // Don't zoom too close for single markers
+      google.maps.event.addListenerOnce(
+        googleMapRef.current,
+        "bounds_changed",
+        () => {
+          if (googleMapRef.current && googleMapRef.current.getZoom()! > 15) {
+            googleMapRef.current.setZoom(15);
           }
-        } catch (error) {
-          console.error(`Failed to fetch location for safe ${safe.id}:`, error);
         }
+      );
+    }
+  };
+
+  // Load Google Maps script
+  useEffect(() => {
+    if (window.google) {
+      initializeMap();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${
+      import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+    }&libraries=geometry`;
+    script.async = true;
+    script.defer = true;
+    script.onload = initializeMap;
+    document.head.appendChild(script);
+
+    return () => {
+      if (script.parentNode) {
+        document.head.removeChild(script);
       }
+    };
+  }, []);
+
+  // Update map when locations change
+  useEffect(() => {
+    updateMapMarkers();
+  }, [locations]);
+
+  // Update map type when view changes
+  useEffect(() => {
+    if (googleMapRef.current) {
+      googleMapRef.current.setMapTypeId(
+        mapView === "satellite"
+          ? google.maps.MapTypeId.SATELLITE
+          : google.maps.MapTypeId.ROADMAP
+      );
+    }
+  }, [mapView]);
+
+  // Get trackable safes (those with tracknetics_device_id)
+  const trackableSafes = safes.filter((safe) => safe.tracknetics_device_id);
+
+  const updateLocations = async () => {
+    if (trackableSafes.length === 0) return;
+
+    setLoading(true);
+    const newLocations: SafeLocationData[] = [];
+
+    console.log(
+      "🗺️ Updating locations for",
+      trackableSafes.length,
+      "trackable safes"
+    );
+
+    for (const safe of trackableSafes) {
+      const safeLocation: SafeLocationData = {
+        safeId: safe.id,
+        serialNumber: safe.serial_number,
+        deviceId: safe.tracknetics_device_id || null,
+        status: "offline",
+        lastUpdate: new Date(),
+      };
+
+      if (safe.tracknetics_device_id) {
+        try {
+          console.log(
+            `📍 Getting location for safe ${safe.serial_number} (device: ${safe.tracknetics_device_id})`
+          );
+
+          const result = await trackneticsService.getLocationByDeviceId(
+            safe.tracknetics_device_id
+          );
+
+          if (result.success && result.location) {
+            safeLocation.location = {
+              lat: result.location.lat,
+              lng: result.location.lng,
+              accuracy: result.location.accuracy,
+              timestamp: result.location.timestamp,
+            };
+            safeLocation.status = "online";
+            console.log(
+              `✅ Location found for ${safe.serial_number}:`,
+              result.location
+            );
+          } else {
+            safeLocation.status = "offline";
+            safeLocation.error = result.error || "No location data";
+            console.log(
+              `❌ No location for ${safe.serial_number}:`,
+              result.error
+            );
+          }
+        } catch (error: any) {
+          safeLocation.status = "error";
+          safeLocation.error = error.message || "Failed to get location";
+          console.error(
+            `💥 Error getting location for ${safe.serial_number}:`,
+            error
+          );
+        }
+      } else {
+        safeLocation.status = "no_tracker";
+        safeLocation.error = "No tracking device assigned";
+      }
+
+      newLocations.push(safeLocation);
     }
 
     setLocations(newLocations);
     setLastUpdate(new Date());
     setLoading(false);
+
+    console.log("🗺️ Location update complete:", newLocations);
   };
 
+  // Auto-refresh every 30 seconds
   useEffect(() => {
     updateLocations();
 
-    // Set up auto-refresh every 30 seconds
-    const interval = setInterval(updateLocations, 30000);
+    if (autoRefresh) {
+      const interval = setInterval(updateLocations, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [safes, autoRefresh]);
 
-    return () => clearInterval(interval);
-  }, [safes]);
+  const getStatusColor = (status: SafeLocationData["status"]) => {
+    switch (status) {
+      case "online":
+        return "text-green-600 bg-green-100";
+      case "offline":
+        return "text-red-600 bg-red-100";
+      case "no_tracker":
+        return "text-gray-600 bg-gray-100";
+      case "error":
+        return "text-orange-600 bg-orange-100";
+      default:
+        return "text-gray-600 bg-gray-100";
+    }
+  };
 
-  const trackingSafes = safes.filter(
-    (safe) => safe.tracking_device_id && safe.status === "active"
-  );
+  const getStatusLabel = (status: SafeLocationData["status"]) => {
+    switch (status) {
+      case "online":
+        return "Online";
+      case "offline":
+        return "Offline";
+      case "no_tracker":
+        return "No Tracker";
+      case "error":
+        return "Error";
+      default:
+        return "Unknown";
+    }
+  };
 
-  if (trackingSafes.length === 0) {
+  if (trackableSafes.length === 0) {
     return (
       <div className="card text-center py-12">
         <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-gray-900 mb-2">
-          No Tracking Available
+          No Trackable Safes
         </h3>
-        <p className="text-gray-500">
-          No active safes with tracking devices found.
+        <p className="text-gray-500 mb-4">
+          No safes have tracking devices assigned.
+        </p>
+        <p className="text-sm text-gray-400">
+          Add a tracking device ID to safes in the database to enable live
+          tracking.
         </p>
       </div>
     );
@@ -93,13 +332,29 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
       <div className="card">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-medium text-gray-900">Live Tracking</h3>
+            <h3 className="text-lg font-medium text-gray-900">
+              Live GPS Tracking
+            </h3>
             <p className="text-sm text-gray-500">
               {lastUpdate && `Last updated: ${lastUpdate.toLocaleTimeString()}`}
             </p>
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* Auto-refresh toggle */}
+            <label className="flex items-center space-x-2 text-sm">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) =>
+                  setAutoRefresh((e.target as HTMLInputElement).checked)
+                }
+                className="rounded"
+              />
+              <span>Auto-refresh</span>
+            </label>
+
+            {/* Map view toggle */}
             <div className="flex rounded-lg border border-gray-300">
               <button
                 onClick={() => setMapView("roadmap")}
@@ -123,6 +378,7 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
               </button>
             </div>
 
+            {/* Manual refresh */}
             <button
               onClick={updateLocations}
               disabled={loading}
@@ -139,73 +395,93 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
         </div>
       </div>
 
-      {/* Map Placeholder */}
+      {/* Google Maps */}
       <div className="card">
-        <div className="h-96 bg-gray-100 rounded-lg flex items-center justify-center">
-          <div className="text-center">
-            <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">Map integration placeholder</p>
-            <p className="text-sm text-gray-400 mt-2">
-              Integrate with Google Maps, Mapbox, or similar service
-            </p>
+        <div className="h-96 rounded-lg overflow-hidden">
+          <div
+            ref={mapRef}
+            className="w-full h-full"
+            style={{ minHeight: "384px" }}
+          />
+        </div>
+
+        {/* Map Legend */}
+        <div className="mt-4 flex items-center justify-between">
+          <div className="flex items-center space-x-4 text-sm">
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              <span>Online</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 rounded-full bg-red-500"></div>
+              <span>Offline</span>
+            </div>
+          </div>
+
+          <div className="text-xs text-gray-500">
+            Click markers for details •{" "}
+            {locations.filter((l) => l.location).length} of {locations.length}{" "}
+            safes located
           </div>
         </div>
       </div>
 
-      {/* Location Cards */}
+      {/* Location Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {trackingSafes.map((safe) => {
-          const location = locations[safe.id];
+        {locations.map((safeLocation) => {
+          const safe = safes.find((s) => s.id === safeLocation.safeId);
 
           return (
-            <div key={safe.id} className="card">
+            <div key={safeLocation.safeId} className="card">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-3">
                   <div
                     className={`p-2 rounded-lg ${
-                      location ? "bg-green-100" : "bg-gray-100"
+                      safeLocation.status === "online"
+                        ? "bg-green-100"
+                        : "bg-gray-100"
                     }`}
                   >
                     <MapPin
                       className={`h-5 w-5 ${
-                        location ? "text-green-600" : "text-gray-400"
+                        safeLocation.status === "online"
+                          ? "text-green-600"
+                          : "text-gray-400"
                       }`}
                     />
                   </div>
                   <div>
                     <h4 className="font-medium text-gray-900">
-                      Safe {safe.serial_number}
+                      Safe {safeLocation.serialNumber}
                     </h4>
                     <p className="text-sm text-gray-500">
-                      Tracking ID: {safe.tracking_device_id}
+                      Device: {safeLocation.deviceId || "None"}
                     </p>
                   </div>
                 </div>
 
                 <span
-                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    location
-                      ? "text-green-800 bg-green-100"
-                      : "text-gray-800 bg-gray-100"
-                  }`}
+                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                    safeLocation.status
+                  )}`}
                 >
-                  {location ? "Online" : "No Signal"}
+                  {getStatusLabel(safeLocation.status)}
                 </span>
               </div>
 
-              {location ? (
+              {safeLocation.location ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-gray-500">Latitude</p>
                       <p className="font-mono text-gray-900">
-                        {location.lat.toFixed(6)}
+                        {safeLocation.location.lat.toFixed(6)}
                       </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Longitude</p>
                       <p className="font-mono text-gray-900">
-                        {location.lng.toFixed(6)}
+                        {safeLocation.location.lng.toFixed(6)}
                       </p>
                     </div>
                   </div>
@@ -213,27 +489,82 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-gray-500">Accuracy</p>
-                      <p className="text-gray-900">±{location.accuracy}m</p>
+                      <p className="text-gray-900">
+                        ±{safeLocation.location.accuracy}m
+                        {safeLocation.location.isGPS && (
+                          <span className="ml-1 text-green-600 text-xs">
+                            GPS
+                          </span>
+                        )}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Speed</p>
-                      <p className="text-gray-900">{location.speed} km/h</p>
+                      <p className="text-gray-500">Updated</p>
+                      <p className="text-gray-900 text-xs">
+                        {formatDistanceToNow(safeLocation.lastUpdate)} ago
+                      </p>
                     </div>
                   </div>
 
-                  <div className="pt-3 border-t border-gray-200">
-                    <p className="text-xs text-gray-500">
-                      Last update:{" "}
-                      {new Date(location.timestamp).toLocaleString()}
-                    </p>
-                  </div>
+                  {/* Safe Status Integration */}
+                  {safe && (
+                    <div className="pt-3 border-t border-gray-200">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center space-x-4">
+                          <div className="flex items-center space-x-1">
+                            <Battery className="h-3 w-3 text-gray-400" />
+                            <span
+                              className={`text-xs ${
+                                safe.battery_level > 50
+                                  ? "text-green-600"
+                                  : safe.battery_level > 20
+                                  ? "text-yellow-600"
+                                  : "text-red-600"
+                              }`}
+                            >
+                              {safe.battery_level}%
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <div
+                              className={`w-2 h-2 rounded-full ${
+                                safe.status === "active"
+                                  ? "bg-green-500"
+                                  : "bg-gray-400"
+                              }`}
+                            />
+                            <span className="text-xs text-gray-600 capitalize">
+                              {safe.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() =>
+                            window.open(
+                              `https://maps.google.com/maps?q=${safeLocation.location?.lat},${safeLocation.location?.lng}`,
+                              "_blank"
+                            )
+                          }
+                          className="text-blue-600 hover:text-blue-800 text-xs"
+                        >
+                          View on Maps
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-4">
-                  <p className="text-gray-500">No location data available</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Check device connection and GPS signal
+                  <AlertTriangle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                  <p className="text-gray-500 text-sm">
+                    {safeLocation.error || "No location data available"}
                   </p>
+                  {safeLocation.status === "no_tracker" && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Add tracking device ID to database
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -241,16 +572,19 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
         })}
       </div>
 
-      {/* Instructions */}
+      {/* Integration Instructions */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="font-medium text-blue-800 mb-2">Integration Notes</h4>
+        <h4 className="font-medium text-blue-800 mb-2">Next Steps:</h4>
         <ul className="text-sm text-blue-700 space-y-1">
           <li>
-            • Replace mock tracking API with your actual tracking provider
+            • Integrate Google Maps API to display coordinates on an interactive
+            map
           </li>
-          <li>• Integrate with Google Maps or Mapbox for real map display</li>
-          <li>• Consider WebSocket updates for real-time location streaming</li>
-          <li>• Add geofencing alerts for pickup/delivery locations</li>
+          <li>
+            • Add real-time markers showing safe positions and movement trails
+          </li>
+          <li>• Display trip routes and delivery status on the map</li>
+          <li>• Add geofence visualization for delivery locations</li>
         </ul>
       </div>
     </div>

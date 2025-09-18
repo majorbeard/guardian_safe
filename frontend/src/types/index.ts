@@ -31,6 +31,7 @@ export interface Safe {
   battery_level: number;
   is_locked: boolean;
   tracking_device_id?: string;
+  tracknetics_device_id?: string; // Add this line
   assigned_to: string;
   last_update?: string;
   created_at: string;

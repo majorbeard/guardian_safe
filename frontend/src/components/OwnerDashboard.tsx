@@ -8,6 +8,7 @@ import { SafesList } from "./SafesList";
 import { TripsList } from "./TripsList";
 import { StatsCards } from "./StatsCards";
 import { safes, trips } from "../store/data";
+import { trackneticsService } from "../services/tracknetics";
 
 export function OwnerDashboard() {
   const [showCreateUser, setShowCreateUser] = useState(false);
@@ -44,6 +45,22 @@ export function OwnerDashboard() {
       </button>
     </div>
   );
+
+  // Tracknetics
+  const testTracknetics = async () => {
+    console.log("Testing Tracknetics integration...");
+
+    const loginResult = await trackneticsService.login();
+    console.log("Login result:", loginResult);
+
+    if (loginResult.success) {
+      // Test direct device location call
+      const locationResult = await trackneticsService.getLocationByDeviceId(
+        "197273"
+      );
+      console.log("Direct location result:", locationResult);
+    }
+  };
 
   const tabs = [
     { id: "overview", label: "Overview", icon: Package },
@@ -115,6 +132,10 @@ export function OwnerDashboard() {
       {showCreateSafe && (
         <CreateSafeModal onClose={() => setShowCreateSafe(false)} />
       )}
+
+      <button onClick={testTracknetics} className="btn btn-secondary">
+        Test Tracknetics
+      </button>
     </>
   );
 }
