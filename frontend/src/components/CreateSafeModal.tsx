@@ -3,18 +3,22 @@ import {
   X,
   Shield,
   Smartphone,
-  Hash,
   User,
   Eye,
   EyeOff,
   Copy,
+  MapPin,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-preact";
 import { dataService } from "../services/data";
+import { trackneticsService } from "../services/tracknetics";
 import {
   mobileUserService,
   type MobileUserCredentials,
 } from "../services/mobileUsers";
 import { LoadingSpinner } from "./LoadingSpinner";
+import { safes } from "../store/data";
 import { supabase } from "../lib/supabase";
 
 interface CreateSafeModalProps {
@@ -26,21 +30,36 @@ interface AdminUser {
   username: string;
 }
 
+interface TrackerDevice {
+  id: string;
+  sn: string; // IMEI
+  name: string;
+  status: string;
+  isAvailable: boolean;
+}
+
 export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     serial_number: "",
     device_hash: "",
-    tracking_device_id: "",
+    selected_tracker_id: "",
     assigned_to: "",
-    driver_name: "", // NEW
+    driver_name: "",
   });
+
+  // State management
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [availableTrackers, setAvailableTrackers] = useState<TrackerDevice[]>(
+    []
+  );
   const [loading, setLoading] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(true);
+  const [loadingTrackers, setLoadingTrackers] = useState(false);
+  const [trackersError, setTrackersError] = useState("");
   const [error, setError] = useState("");
 
-  // NEW: Credentials state
+  // Credentials state
   const [mobileCredentials, setMobileCredentials] =
     useState<MobileUserCredentials | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
@@ -70,6 +89,79 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
     }
   };
 
+  // Load available trackers from Tracknetics
+  const loadAvailableTrackers = async () => {
+    setLoadingTrackers(true);
+    setTrackersError("");
+
+    try {
+      console.log("🔍 Fetching available trackers from Tracknetics...");
+
+      // Get all devices from Tracknetics account
+      const result = await trackneticsService.getDeviceList();
+
+      if (!result.success || !result.devices) {
+        throw new Error(result.error || "Failed to fetch tracking devices");
+      }
+
+      console.log(
+        `📱 Found ${result.devices.length} trackers in Tracknetics account`
+      );
+
+      // Get trackers already assigned to safes in our database
+      const assignedTrackerIds = safes.value
+        .map((safe) => safe.tracknetics_device_id || safe.tracking_device_id)
+        .filter(Boolean);
+
+      console.log(
+        `🔒 ${assignedTrackerIds.length} trackers already assigned to safes`
+      );
+
+      // Filter to show only available trackers
+      const availableDevices: TrackerDevice[] = result.devices.map(
+        (device) => ({
+          id: device.id,
+          sn: device.sn,
+          name: device.name,
+          status: device.status,
+          isAvailable: !assignedTrackerIds.includes(device.id),
+        })
+      );
+
+      const unassignedCount = availableDevices.filter(
+        (d) => d.isAvailable
+      ).length;
+      console.log(`✅ ${unassignedCount} trackers available for assignment`);
+
+      setAvailableTrackers(availableDevices);
+
+      if (unassignedCount === 0) {
+        setTrackersError(
+          "No available trackers found. All trackers are already assigned to safes."
+        );
+      }
+    } catch (error: any) {
+      console.error("❌ Error loading trackers:", error);
+
+      if (
+        error.message?.includes("Authentication failed") ||
+        error.message?.includes("login") ||
+        error.message?.includes("KEY incorrect")
+      ) {
+        setTrackersError(
+          "Unable to connect to tracking service provider. Please contact Tracknetics support to ensure your account is active and service is online."
+        );
+      } else {
+        setTrackersError(
+          error.message ||
+            "Failed to load tracking devices. Please check your connection and try again."
+        );
+      }
+    } finally {
+      setLoadingTrackers(false);
+    }
+  };
+
   const generateDeviceHash = () => {
     const chars = "ABCDEF0123456789";
     let hash = "";
@@ -87,6 +179,18 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
     }
     setCurrentStep(2);
     setError("");
+    // Load trackers when moving to step 2
+    loadAvailableTrackers();
+  };
+
+  const handleStep2Submit = (e: Event) => {
+    e.preventDefault();
+    if (!formData.selected_tracker_id || !formData.device_hash) {
+      setError("Please select a tracker and generate device hash");
+      return;
+    }
+    setCurrentStep(3);
+    setError("");
   };
 
   const handleFinalSubmit = async (e: Event) => {
@@ -99,7 +203,7 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
       const safeResult = await dataService.createSafe({
         serial_number: formData.serial_number,
         device_hash: formData.device_hash,
-        tracking_device_id: formData.tracking_device_id,
+        tracking_device_id: formData.selected_tracker_id, // Store the selected tracker
         assigned_to: formData.assigned_to,
       });
 
@@ -126,7 +230,7 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
 
       // Success! Show credentials
       setMobileCredentials(mobileUserResult.credentials!);
-      setCurrentStep(3);
+      setCurrentStep(4);
     } catch (err) {
       setError("Network error. Please try again.");
     } finally {
@@ -151,17 +255,24 @@ Please save these credentials securely. The password will not be shown again.`;
     setFormData({
       serial_number: "",
       device_hash: "",
-      tracking_device_id: "",
+      selected_tracker_id: "",
       assigned_to: "",
       driver_name: "",
     });
+    setAvailableTrackers([]);
     setMobileCredentials(null);
     setError("");
+    setTrackersError("");
     onClose();
   };
 
-  // Step 3: Show Credentials
-  if (currentStep === 3 && mobileCredentials) {
+  // Get selected tracker info
+  const selectedTracker = availableTrackers.find(
+    (t) => t.id === formData.selected_tracker_id
+  );
+
+  // Step 4: Show Credentials
+  if (currentStep === 4 && mobileCredentials) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
@@ -184,13 +295,21 @@ Please save these credentials securely. The password will not be shown again.`;
                   <Shield className="h-4 w-4 text-white" />
                 </div>
                 <h3 className="font-medium text-green-800">
-                  Safe Registration Complete
+                  Registration Complete
                 </h3>
               </div>
-              <p className="text-sm text-green-700">
-                Safe <strong>{formData.serial_number}</strong> has been
-                registered and assigned to the selected admin.
-              </p>
+              <div className="text-sm text-green-700 space-y-1">
+                <p>
+                  <strong>Safe:</strong> {formData.serial_number}
+                </p>
+                <p>
+                  <strong>Tracker:</strong>{" "}
+                  {selectedTracker?.name || formData.selected_tracker_id}
+                </p>
+                <p>
+                  <strong>Status:</strong> Inactive (ready for activation)
+                </p>
+              </div>
             </div>
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -248,10 +367,13 @@ Please save these credentials securely. The password will not be shown again.`;
 
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <p className="text-sm text-yellow-800">
-                <strong>Important:</strong> Save these credentials securely and
-                provide them to your driver. The password will not be shown
-                again after closing this dialog.
+                <strong>Next Steps:</strong>
               </p>
+              <ol className="text-sm text-yellow-700 mt-2 space-y-1 list-decimal list-inside">
+                <li>Test the safe and tracker functionality</li>
+                <li>Activate the safe from the Safes dashboard</li>
+                <li>Provide mobile credentials to your driver</li>
+              </ol>
             </div>
 
             <button onClick={handleClose} className="w-full btn btn-primary">
@@ -270,6 +392,8 @@ Please save these credentials securely. The password will not be shown again.`;
           <h2 className="text-xl font-bold text-gray-900">
             {currentStep === 1
               ? "Register New Safe"
+              : currentStep === 2
+              ? "Select Tracking Device"
               : "Configure Mobile Access"}
           </h2>
           <button
@@ -305,6 +429,20 @@ Please save these credentials securely. The password will not be shown again.`;
           >
             2
           </div>
+          <div
+            className={`h-1 w-8 ${
+              currentStep >= 3 ? "bg-blue-600" : "bg-gray-200"
+            }`}
+          ></div>
+          <div
+            className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+              currentStep >= 3
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-600"
+            }`}
+          >
+            3
+          </div>
         </div>
 
         {error && (
@@ -325,7 +463,7 @@ Please save these credentials securely. The password will not be shown again.`;
                   type="text"
                   required
                   className="input pl-10"
-                  placeholder="GS-2024-001"
+                  placeholder="GS-2025-001"
                   value={formData.serial_number}
                   onInput={(e) =>
                     setFormData((prev) => ({
@@ -390,9 +528,123 @@ Please save these credentials securely. The password will not be shown again.`;
           </form>
         )}
 
-        {/* Step 2: Technical Details */}
+        {/* Step 2: Tracker Selection */}
         {currentStep === 2 && (
-          <form onSubmit={handleFinalSubmit} className="space-y-4">
+          <form onSubmit={handleStep2Submit} className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Select GPS Tracker *
+                </label>
+                <button
+                  type="button"
+                  onClick={loadAvailableTrackers}
+                  disabled={loadingTrackers}
+                  className="text-blue-600 hover:text-blue-800 text-sm flex items-center space-x-1"
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${
+                      loadingTrackers ? "animate-spin" : ""
+                    }`}
+                  />
+                  <span>Refresh List</span>
+                </button>
+              </div>
+
+              {loadingTrackers ? (
+                <div className="flex items-center justify-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                  <div className="text-center">
+                    <LoadingSpinner size="medium" />
+                    <p className="mt-2 text-sm text-gray-500">
+                      Fetching available trackers from Tracknetics...
+                    </p>
+                  </div>
+                </div>
+              ) : trackersError ? (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-red-800 mb-2">
+                        Unable to Load Trackers
+                      </p>
+                      <p className="text-sm text-red-700 mb-3">
+                        {trackersError}
+                      </p>
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={loadAvailableTrackers}
+                          className="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <select
+                    required
+                    className="input"
+                    value={formData.selected_tracker_id}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        selected_tracker_id: (e.target as HTMLSelectElement)
+                          .value,
+                      }))
+                    }
+                  >
+                    <option value="">Select a tracking device</option>
+                    {availableTrackers
+                      .filter((tracker) => tracker.isAvailable)
+                      .map((tracker) => (
+                        <option key={tracker.id} value={tracker.id}>
+                          {tracker.name} (ID: {tracker.id}) - {tracker.status}
+                        </option>
+                      ))}
+                  </select>
+
+                  {/* Tracker Info */}
+                  {selectedTracker && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <MapPin className="h-4 w-4 text-blue-600" />
+                        <h4 className="font-medium text-blue-800">
+                          Selected Tracker
+                        </h4>
+                      </div>
+                      <div className="text-sm text-blue-700 space-y-1">
+                        <p>
+                          <strong>Device:</strong> {selectedTracker.name}
+                        </p>
+                        <p>
+                          <strong>ID:</strong> {selectedTracker.id}
+                        </p>
+                        <p>
+                          <strong>IMEI:</strong> {selectedTracker.sn}
+                        </p>
+                        <p>
+                          <strong>Status:</strong> {selectedTracker.status}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Statistics */}
+                  <div className="mt-3 text-xs text-gray-500 text-center">
+                    {availableTrackers.filter((t) => t.isAvailable).length}{" "}
+                    available •{" "}
+                    {availableTrackers.filter((t) => !t.isAvailable).length}{" "}
+                    already assigned • {availableTrackers.length} total in
+                    account
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700">
                 Device Hash (Phone + Pi Combo) *
@@ -426,27 +678,41 @@ Please save these credentials securely. The password will not be shown again.`;
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Tracking Device ID
-              </label>
-              <div className="mt-1 relative">
-                <input
-                  type="text"
-                  className="input pl-10"
-                  placeholder="TR-ABC123 (optional)"
-                  value={formData.tracking_device_id}
-                  onInput={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      tracking_device_id: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                />
-                <Hash className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              </div>
+            <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-700">
+              <p className="font-medium">✅ Tracker Assignment Validated</p>
+              <p className="mt-1">
+                The selected tracker is confirmed available and will be assigned
+                to this safe.
+              </p>
             </div>
 
+            <div className="flex justify-end space-x-3 pt-4 border-t">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(1)}
+                className="btn btn-secondary"
+                disabled={loading}
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={
+                  !formData.selected_tracker_id ||
+                  !formData.device_hash ||
+                  !!trackersError
+                }
+              >
+                Continue
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Step 3: Mobile User Setup */}
+        {currentStep === 3 && (
+          <form onSubmit={handleFinalSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">
                 Driver Name (Optional)
@@ -471,19 +737,49 @@ Please save these credentials securely. The password will not be shown again.`;
               </p>
             </div>
 
+            {/* Summary */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <h4 className="font-medium text-gray-900">
+                Registration Summary
+              </h4>
+              <div className="text-sm space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Safe Serial:</span>
+                  <span className="font-mono">{formData.serial_number}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">GPS Tracker:</span>
+                  <span className="font-mono">
+                    {selectedTracker?.name || formData.selected_tracker_id}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Device Hash:</span>
+                  <span className="font-mono text-xs">
+                    {formData.device_hash}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Driver:</span>
+                  <span>{formData.driver_name || "Auto-generated"}</span>
+                </div>
+              </div>
+            </div>
+
             <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-700">
               <p className="font-medium">What will be created:</p>
-              <ul className="mt-1 space-y-1">
-                <li>• Safe registration with technical details</li>
-                <li>• Mobile app user account for driver</li>
-                <li>• Login credentials for the safe's phone</li>
+              <ul className="mt-1 space-y-1 list-disc list-inside">
+                <li>Safe registration with validated GPS tracker</li>
+                <li>Mobile app user account for driver access</li>
+                <li>Secure login credentials for the safe's phone</li>
+                <li>Safe will be created as INACTIVE (ready for testing)</li>
               </ul>
             </div>
 
             <div className="flex justify-end space-x-3 pt-4 border-t">
               <button
                 type="button"
-                onClick={() => setCurrentStep(1)}
+                onClick={() => setCurrentStep(2)}
                 className="btn btn-secondary"
                 disabled={loading}
               >
@@ -497,7 +793,7 @@ Please save these credentials securely. The password will not be shown again.`;
                 {loading ? (
                   <>
                     <LoadingSpinner size="small" className="mr-2" />
-                    Creating...
+                    Creating Safe...
                   </>
                 ) : (
                   "Create Safe & Mobile User"
