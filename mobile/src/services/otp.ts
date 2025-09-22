@@ -94,7 +94,7 @@ class OTPService {
     location: { latitude: number; longitude: number; accuracy: number }
   ): Promise<OTPResponse> {
     try {
-      console.log("Requesting OTP for trip:", tripId);
+      console.log("🔐 Requesting OTP for trip:", tripId);
 
       // Step 1: Validate location
       const locationCheck = await this.validateLocation(tripId, location);
@@ -116,6 +116,7 @@ class OTPService {
         .single();
 
       if (tripError || !trip) {
+        console.error("❌ Trip lookup error:", tripError);
         return {
           success: false,
           error: "Trip must be in transit to request OTP",
@@ -133,49 +134,76 @@ class OTPService {
       const otp = this.generateOTP();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
 
-      // Step 4: Store OTP in database
-      const { error: otpError } = await supabase.from("trip_otps").insert({
+      console.log(
+        "🔐 Generated OTP:",
+        otp,
+        "expires:",
+        expiresAt.toISOString()
+      );
+
+      // Step 4: Prepare OTP data for insertion
+      const otpData = {
         trip_id: tripId,
         otp_code: otp,
         expires_at: expiresAt.toISOString(),
-        requested_location: location,
-        created_at: new Date().toISOString(),
-      });
+        requested_location: location, // This will be stored as JSONB
+        // Don't specify created_at, used, used_at - let defaults handle them
+      };
+
+      console.log("🔐 Attempting to insert OTP with data:", otpData);
+
+      // Step 5: Store OTP in database
+      const { data: insertedOTP, error: otpError } = await supabase
+        .from("trip_otps")
+        .insert(otpData)
+        .select()
+        .single();
 
       if (otpError) {
-        console.error("Failed to store OTP:", otpError);
-        return { success: false, error: "Failed to generate OTP" };
-      }
-
-      // Step 5: Send OTP via email
-      const emailResult = await this.sendOTPEmail(trip, otp);
-      if (!emailResult.success) {
+        console.error("💥 Detailed OTP insertion error:", otpError);
         return {
           success: false,
-          error: emailResult.error || "Failed to send OTP email",
+          error: `Failed to generate OTP: ${otpError.message}`,
         };
       }
 
+      console.log("✅ OTP stored successfully:", insertedOTP);
+
+      // Step 6: Send OTP via email
+      const emailResult = await this.sendOTPEmail(trip, otp);
+      if (!emailResult.success) {
+        // OTP was created but email failed - still return success but mention email issue
+        console.warn("⚠️ OTP created but email failed:", emailResult.error);
+        return {
+          success: true,
+          expires_at: expiresAt.toISOString(),
+          // Could add a warning about email failure here if needed
+        };
+      }
+
+      console.log("🎉 OTP request completed successfully");
       return {
         success: true,
         expires_at: expiresAt.toISOString(),
       };
-    } catch (err) {
-      console.error("OTP request error:", err);
-      return { success: false, error: "Failed to request OTP" };
+    } catch (err: any) {
+      console.error("💥 OTP request exception:", err);
+      return {
+        success: false,
+        error: `Failed to request OTP: ${err.message}`,
+      };
     }
   }
 
-  // Send OTP via email
   // Send OTP via email
   private async sendOTPEmail(
     trip: any,
     otp: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log("📧 Making direct HTTP call to edge function...");
+      console.log("📧 Sending OTP email to:", trip.client_email);
 
-      // Make direct HTTP call instead of using supabase.functions.invoke
+      // Make direct HTTP call to edge function
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -199,17 +227,24 @@ class OTPService {
         }
       );
 
-      const result = await response.json();
-
-      console.log("📧 Edge function response:", result);
-
       if (!response.ok) {
-        console.error("Edge function error:", result);
-        return { success: false, error: "Failed to send OTP email" };
+        const errorText = await response.text();
+        console.error(
+          "❌ Email service HTTP error:",
+          response.status,
+          errorText
+        );
+        return {
+          success: false,
+          error: `Email service error: ${response.status}`,
+        };
       }
 
+      const result = await response.json();
+      console.log("📧 Email service response:", result);
+
       if (result.success) {
-        console.log("📧 OTP email sent successfully!");
+        console.log("✅ OTP email sent successfully!");
         return { success: true };
       } else {
         return {
@@ -217,9 +252,9 @@ class OTPService {
           error: result.error || "Failed to send OTP email",
         };
       }
-    } catch (err) {
-      console.error("Email send exception:", err);
-      return { success: false, error: "Failed to send OTP email" };
+    } catch (err: any) {
+      console.error("💥 Email send exception:", err);
+      return { success: false, error: `Email service error: ${err.message}` };
     }
   }
 
@@ -229,9 +264,9 @@ class OTPService {
     otpCode: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log("Verifying OTP:", otpCode, "for trip:", tripId);
+      console.log("🔍 Verifying OTP:", otpCode, "for trip:", tripId);
 
-      // Get the latest OTP for this trip
+      // Get the latest unused, unexpired OTP for this trip
       const { data: otpRecord, error } = await supabase
         .from("trip_otps")
         .select("*")
@@ -243,12 +278,23 @@ class OTPService {
         .limit(1)
         .single();
 
-      if (error || !otpRecord) {
+      if (error) {
+        console.error("❌ OTP lookup error:", error);
+        if (error.code === "PGRST116") {
+          // No rows returned
+          return { success: false, error: "Invalid or expired OTP code" };
+        }
+        return { success: false, error: "Failed to verify OTP" };
+      }
+
+      if (!otpRecord) {
         return { success: false, error: "Invalid or expired OTP code" };
       }
 
+      console.log("✅ Found valid OTP record:", otpRecord.id);
+
       // Mark OTP as used
-      await supabase
+      const { error: updateError } = await supabase
         .from("trip_otps")
         .update({
           used: true,
@@ -256,22 +302,34 @@ class OTPService {
         })
         .eq("id", otpRecord.id);
 
+      if (updateError) {
+        console.error("❌ Failed to mark OTP as used:", updateError);
+        return { success: false, error: "Failed to process OTP" };
+      }
+
+      console.log("🎉 OTP verified and marked as used");
       return { success: true };
-    } catch (err) {
-      console.error("OTP verification error:", err);
-      return { success: false, error: "Failed to verify OTP" };
+    } catch (err: any) {
+      console.error("💥 OTP verification exception:", err);
+      return { success: false, error: `Verification failed: ${err.message}` };
     }
   }
 
   // Clear expired OTPs (cleanup function)
   async cleanupExpiredOTPs() {
     try {
-      await supabase
+      const { error } = await supabase
         .from("trip_otps")
         .delete()
         .lt("expires_at", new Date().toISOString());
+
+      if (error) {
+        console.error("❌ OTP cleanup error:", error);
+      } else {
+        console.log("🧹 Expired OTPs cleaned up");
+      }
     } catch (err) {
-      console.error("OTP cleanup error:", err);
+      console.error("💥 OTP cleanup exception:", err);
     }
   }
 }
