@@ -380,34 +380,39 @@ class DataService {
   }
 
   // Get trip by tracking token (public access)
+  // In your dataService.ts file, update this function:
+
   async getTripByTrackingToken(trackingToken: string) {
     try {
       const { data, error } = await supabase
         .from("trips")
         .select(
           `
+        id,
+        client_name,
+        pickup_address,
+        delivery_address,
+        status,
+        scheduled_pickup,
+        scheduled_delivery,
+        actual_pickup_time,
+        actual_delivery_time,
+        priority,
+        special_instructions,
+        requires_signature,
+        created_at,
+        updated_at,
+        safe_id,
+        safes!inner(
           id,
-          client_name,
-          pickup_address,
-          delivery_address,
+          serial_number,
           status,
-          scheduled_pickup,
-          scheduled_delivery,
-          actual_pickup_time,
-          actual_delivery_time,
-          priority,
-          special_instructions,
-          requires_signature,
-          created_at,
-          updated_at,
-          safe_id,
-          safes!inner(
-            serial_number,
-            status,
-            battery_level,
-            last_update
-          )
-        `
+          battery_level,
+          last_update,
+          tracknetics_device_id,
+          tracking_device_id
+        )
+      `
         )
         .eq("tracking_token", trackingToken)
         .eq("customer_tracking_enabled", true)
@@ -424,7 +429,7 @@ class DataService {
       };
 
       return { success: true, trip: transformedData };
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching trip by tracking token:", err);
       return { success: false, error: "Failed to load tracking information" };
     }
