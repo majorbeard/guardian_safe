@@ -76,6 +76,7 @@ export function CustomerTrackingPage({
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const safeMarkerRef = useRef<google.maps.Marker | null>(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
+  const [mapsError, setMapsError] = useState<string>("");
 
   // Load trip data
   const loadTripData = async (showLoading = true) => {
@@ -100,18 +101,28 @@ export function CustomerTrackingPage({
     }
   };
 
-  // Load Google Maps (simplified - no geocoding)
+  // Load Google Maps with proper error handling
   const loadGoogleMaps = (): Promise<void> => {
     return new Promise((resolve, reject) => {
+      // Check if Google Maps is already loaded
       if (window.google && window.google.maps) {
+        console.log("✅ Google Maps already loaded");
         setMapsLoaded(true);
         resolve();
         return;
       }
 
-      if (document.querySelector('script[src*="maps.googleapis.com"]')) {
+      // Check if script is already being loaded
+      const existingScript = document.querySelector(
+        'script[src*="maps.googleapis.com"]'
+      );
+      if (existingScript) {
+        console.log(
+          "🔄 Google Maps script already exists, waiting for load..."
+        );
         const checkLoaded = () => {
           if (window.google && window.google.maps) {
+            console.log("✅ Google Maps loaded via existing script");
             setMapsLoaded(true);
             resolve();
           } else {
@@ -122,28 +133,72 @@ export function CustomerTrackingPage({
         return;
       }
 
-      const script = document.createElement("script");
-      // Removed geocoding library to avoid API issues
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${
-        import.meta.env.VITE_GOOGLE_MAPS_API_KEY
-      }&libraries=geometry&loading=async&callback=initSimpleCustomerMaps`;
-      script.async = true;
+      // Check if API key is available
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        const error = "Google Maps API key not configured";
+        console.error("❌", error);
+        setMapsError(error);
+        reject(new Error(error));
+        return;
+      }
 
-      (window as any).initSimpleCustomerMaps = () => {
+      console.log("📦 Loading Google Maps API...");
+
+      // Create unique callback name to avoid conflicts
+      const callbackName = `initCustomerMaps_${Date.now()}`;
+
+      // Set up global callback
+      (window as any)[callbackName] = () => {
+        console.log("✅ Google Maps API loaded successfully");
         setMapsLoaded(true);
+        setMapsError("");
+        // Clean up callback
+        delete (window as any)[callbackName];
         resolve();
       };
 
-      script.onerror = () => reject(new Error("Failed to load Google Maps"));
+      // Create and load script
+      const script = document.createElement("script");
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry&callback=${callbackName}`;
+      script.async = true;
+      script.defer = true;
+
+      script.onerror = () => {
+        const error = "Failed to load Google Maps API";
+        console.error("❌", error);
+        setMapsError(error);
+        delete (window as any)[callbackName];
+        reject(new Error(error));
+      };
+
       document.head.appendChild(script);
     });
   };
 
-  // Initialize simplified map (just shows safe location)
+  // Initialize map with better error handling
   const initializeMap = async () => {
-    if (!mapRef.current || !window.google || !mapsLoaded) return;
+    if (!mapRef.current) {
+      console.log("⏳ Map initialization skipped - mapRef not available");
+      return;
+    }
 
-    console.log("🗺️ Initializing simplified customer map...");
+    if (!window.google || !window.google.maps) {
+      console.log("⏳ Map initialization skipped - Google Maps not loaded");
+      return;
+    }
+
+    if (!mapsLoaded) {
+      console.log("⏳ Map initialization skipped - mapsLoaded is false");
+      return;
+    }
+
+    if (googleMapRef.current) {
+      console.log("⏳ Map already initialized");
+      return;
+    }
+
+    console.log("🗺️ Initializing customer tracking map...");
 
     try {
       const map = new google.maps.Map(mapRef.current, {
@@ -157,12 +212,30 @@ export function CustomerTrackingPage({
             stylers: [{ visibility: "off" }],
           },
         ],
+        // Ensure map controls are visible
+        zoomControl: true,
+        mapTypeControl: false,
+        scaleControl: true,
+        streetViewControl: false,
+        rotateControl: false,
+        fullscreenControl: true,
       });
 
       googleMapRef.current = map;
-      console.log("✅ Simplified customer map initialized");
+
+      // Wait for map to be idle before proceeding
+      google.maps.event.addListenerOnce(map, "idle", () => {
+        console.log("✅ Customer tracking map initialized and ready");
+
+        // If we already have location data, update marker immediately
+        if (safeLocation.location) {
+          console.log("🔄 Map ready, updating marker with existing location");
+          updateSafeMarker();
+        }
+      });
     } catch (error) {
       console.error("❌ Error initializing customer map:", error);
+      setMapsError("Failed to initialize map");
     }
   };
 
@@ -218,83 +291,124 @@ export function CustomerTrackingPage({
 
   // Update safe marker on map
   const updateSafeMarker = () => {
-    if (!googleMapRef.current || !safeLocation.location) return;
+    if (!googleMapRef.current) {
+      console.log("⏳ Skipping marker update - googleMapRef not available");
+      return;
+    }
+
+    if (!safeLocation.location) {
+      console.log("⏳ Skipping marker update - no location data");
+      return;
+    }
 
     const position = {
       lat: safeLocation.location.lat,
       lng: safeLocation.location.lng,
     };
 
-    if (!safeMarkerRef.current) {
-      // Create safe marker
-      safeMarkerRef.current = new google.maps.Marker({
-        position,
-        map: googleMapRef.current,
-        title: `Your Secure Transport`,
-        icon: {
-          path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-          fillColor: "#8B5CF6",
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 2,
-          scale: 12,
-        },
-      });
+    console.log("📍 Updating safe marker at:", position);
 
-      // Safe info window
-      const safeInfoWindow = new google.maps.InfoWindow({
-        content: `
-          <div style="padding: 8px;">
-            <h3 style="margin: 0 0 8px 0; color: #8B5CF6;">🚐 Your Secure Transport</h3>
-            <div style="font-size: 12px;">
-              <p style="margin: 2px 0;"><strong>Status:</strong> ${
-                safeLocation.status
-              }</p>
-              <p style="margin: 2px 0;"><strong>Location:</strong> ${position.lat.toFixed(
-                6
-              )}, ${position.lng.toFixed(6)}</p>
-              <p style="margin: 2px 0;"><strong>Accuracy:</strong> ±${
-                safeLocation.location.accuracy
-              }m</p>
-              ${
-                safeLocation.location.speed
-                  ? `<p style="margin: 2px 0;"><strong>Speed:</strong> ${safeLocation.location.speed} km/h</p>`
-                  : ""
-              }
-              <p style="margin: 2px 0;"><strong>Last Update:</strong> Just now</p>
+    try {
+      if (!safeMarkerRef.current) {
+        // Create safe marker
+        safeMarkerRef.current = new google.maps.Marker({
+          position,
+          map: googleMapRef.current,
+          title: `Your Secure Transport`,
+          icon: {
+            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            fillColor: "#8B5CF6",
+            fillOpacity: 1,
+            strokeColor: "#FFFFFF",
+            strokeWeight: 2,
+            scale: 12,
+          },
+        });
+
+        // Safe info window
+        const safeInfoWindow = new google.maps.InfoWindow({
+          content: `
+            <div style="padding: 8px;">
+              <h3 style="margin: 0 0 8px 0; color: #8B5CF6;">🚐 Your Secure Transport</h3>
+              <div style="font-size: 12px;">
+                <p style="margin: 2px 0;"><strong>Status:</strong> ${
+                  safeLocation.status
+                }</p>
+                <p style="margin: 2px 0;"><strong>Location:</strong> ${position.lat.toFixed(
+                  6
+                )}, ${position.lng.toFixed(6)}</p>
+                <p style="margin: 2px 0;"><strong>Accuracy:</strong> ±${
+                  safeLocation.location.accuracy
+                }m</p>
+                ${
+                  safeLocation.location.speed
+                    ? `<p style="margin: 2px 0;"><strong>Speed:</strong> ${safeLocation.location.speed} km/h</p>`
+                    : ""
+                }
+                <p style="margin: 2px 0;"><strong>Last Update:</strong> Just now</p>
+              </div>
             </div>
-          </div>
-        `,
-      });
+          `,
+        });
 
-      safeMarkerRef.current.addListener("click", () => {
-        safeInfoWindow.open(googleMapRef.current, safeMarkerRef.current);
-      });
+        safeMarkerRef.current.addListener("click", () => {
+          safeInfoWindow.open(googleMapRef.current, safeMarkerRef.current);
+        });
 
-      // Center map on safe location
-      googleMapRef.current.setCenter(position);
-    } else {
-      // Update existing marker position
-      safeMarkerRef.current.setPosition(position);
-      // Re-center map on updated position
-      googleMapRef.current.setCenter(position);
+        // Center map on safe location
+        googleMapRef.current.setCenter(position);
+        // Adjust zoom to show marker clearly
+        googleMapRef.current.setZoom(15);
+        console.log("✅ Safe marker created and map centered");
+      } else {
+        // Update existing marker position
+        safeMarkerRef.current.setPosition(position);
+        // Re-center map on updated position
+        googleMapRef.current.setCenter(position);
+        console.log("✅ Safe marker position updated");
+      }
+    } catch (error) {
+      console.error("❌ Error updating safe marker:", error);
     }
   };
 
   // Initialize everything
   useEffect(() => {
     loadTripData();
-    loadGoogleMaps().then(() => {
-      initializeMap();
-    });
+    loadGoogleMaps()
+      .then(() => {
+        // Small delay to ensure DOM is ready
+        setTimeout(() => {
+          initializeMap();
+        }, 100);
+      })
+      .catch((error) => {
+        console.error("Failed to load Google Maps:", error);
+        setMapsError(error.message);
+      });
   }, [trackingToken]);
+
+  // Initialize map when mapsLoaded changes
+  useEffect(() => {
+    if (mapsLoaded && !mapsError && mapRef.current && !googleMapRef.current) {
+      console.log("🔄 Initializing map after mapsLoaded state change");
+      setTimeout(() => {
+        initializeMap();
+      }, 100);
+    }
+  }, [mapsLoaded, mapsError]);
 
   // Update safe marker when location changes
   useEffect(() => {
-    if (mapsLoaded && safeLocation.location) {
+    if (
+      mapsLoaded &&
+      safeLocation.location &&
+      !mapsError &&
+      googleMapRef.current
+    ) {
       updateSafeMarker();
     }
-  }, [safeLocation, mapsLoaded]);
+  }, [safeLocation, mapsLoaded, mapsError]);
 
   // Auto-refresh logic
   useEffect(() => {
@@ -653,7 +767,7 @@ export function CustomerTrackingPage({
             )}
           </div>
 
-          {/* Simplified Map */}
+          {/* Map */}
           <div className="lg:col-span-2">
             <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 overflow-hidden">
               <div className="p-4 border-b border-white/20">
@@ -661,17 +775,20 @@ export function CustomerTrackingPage({
                   <h3 className="text-lg font-bold text-white">
                     Live GPS Position
                   </h3>
-                  {trip.status === "in_transit" && safeLocation.location && (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                      <span className="text-green-400 text-sm">Live</span>
-                    </div>
-                  )}
+                  {trip.status === "in_transit" &&
+                    safeLocation.location &&
+                    !mapsError && (
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                        <span className="text-green-400 text-sm">Live</span>
+                      </div>
+                    )}
                 </div>
               </div>
 
               <div className="h-96 relative">
-                {!mapsLoaded && (
+                {/* Loading State */}
+                {!mapsLoaded && !mapsError && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
                     <div className="text-center">
                       <LoadingSpinner size="large" />
@@ -680,14 +797,43 @@ export function CustomerTrackingPage({
                   </div>
                 )}
 
+                {/* Maps Error State */}
+                {mapsError && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+                    <div className="text-center text-white">
+                      <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-400" />
+                      <p className="text-lg font-medium mb-2">Map Error</p>
+                      <p className="text-gray-300 text-sm max-w-xs">
+                        {mapsError}
+                      </p>
+                      <button
+                        onClick={() => {
+                          setMapsError("");
+                          setMapsLoaded(false);
+                          loadGoogleMaps()
+                            .then(initializeMap)
+                            .catch(console.error);
+                        }}
+                        className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Map Container */}
                 <div
                   ref={mapRef}
                   className="w-full h-full"
-                  style={{ display: mapsLoaded ? "block" : "none" }}
+                  style={{
+                    display: mapsLoaded && !mapsError ? "block" : "none",
+                    minHeight: "384px",
+                  }}
                 />
 
                 {/* No Location Message */}
-                {mapsLoaded && !safeLocation.location && (
+                {mapsLoaded && !mapsError && !safeLocation.location && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50">
                     <div className="text-center text-white">
                       <MapPin className="h-12 w-12 mx-auto mb-4 text-gray-400" />
@@ -704,7 +850,7 @@ export function CustomerTrackingPage({
                 )}
 
                 {/* Simple Legend */}
-                {mapsLoaded && safeLocation.location && (
+                {mapsLoaded && !mapsError && safeLocation.location && (
                   <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm rounded-lg p-3 border border-white/20">
                     <div className="flex items-center space-x-2 text-sm">
                       <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-b-[10px] border-l-transparent border-r-transparent border-b-purple-400"></div>

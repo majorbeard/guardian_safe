@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef } from "preact/hooks";
 import {
   X,
-  MapPin,
   Navigation,
   RefreshCw,
   Clock,
   User,
   Package,
   AlertTriangle,
-  Battery,
   Smartphone,
   Route,
 } from "lucide-preact";
@@ -58,12 +56,8 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const safeMarkerRef = useRef<google.maps.Marker | null>(null);
-  const pickupMarkerRef = useRef<google.maps.Marker | null>(null);
-  const deliveryMarkerRef = useRef<google.maps.Marker | null>(null);
-  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(
-    null
-  );
   const [mapsLoaded, setMapsLoaded] = useState(false);
+  const [mapsError, setMapsError] = useState<string>("");
 
   // Get safe info
   const safe = safes.value.find((s) => s.id === trip.safe_id);
@@ -76,11 +70,112 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
       ? safe.serial_number.toLowerCase().replace(/[^a-z0-9]/g, "") + "_driver"
       : "Unknown");
 
-  // Initialize Google Map
-  const initializeMap = async () => {
-    if (!mapRef.current || !window.google || !mapsLoaded) return;
+  // Load Google Maps with proper error handling
+  const loadGoogleMaps = (): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      // Check if Google Maps is already loaded
+      if (window.google && window.google.maps) {
+        console.log("✅ Google Maps already loaded (Trip Modal)");
+        setMapsLoaded(true);
+        resolve();
+        return;
+      }
 
-    console.log("🗺️ Initializing trip tracking map...");
+      // Check if script is already being loaded
+      const existingScript = document.querySelector(
+        'script[src*="maps.googleapis.com"]'
+      );
+      if (existingScript) {
+        console.log(
+          "🔄 Google Maps script already exists, waiting for load... (Trip Modal)"
+        );
+        const checkLoaded = () => {
+          if (window.google && window.google.maps) {
+            console.log(
+              "✅ Google Maps loaded via existing script (Trip Modal)"
+            );
+            setMapsLoaded(true);
+            resolve();
+          } else {
+            setTimeout(checkLoaded, 100);
+          }
+        };
+        checkLoaded();
+        return;
+      }
+
+      // Check if API key is available
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        const error = "Google Maps API key not configured";
+        console.error("❌ Trip Modal:", error);
+        setMapsError(error);
+        reject(new Error(error));
+        return;
+      }
+
+      console.log("📦 Loading Google Maps API... (Trip Modal)");
+
+      // Create unique callback name to avoid conflicts
+      const callbackName = `initTripMaps_${Date.now()}`;
+
+      // Set up global callback
+      (window as any)[callbackName] = () => {
+        console.log("✅ Google Maps API loaded successfully (Trip Modal)");
+        setMapsLoaded(true);
+        setMapsError("");
+        // Clean up callback
+        delete (window as any)[callbackName];
+        resolve();
+      };
+
+      // Create and load script
+      const script = document.createElement("script");
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry&callback=${callbackName}`;
+      script.async = true;
+      script.defer = true;
+
+      script.onerror = () => {
+        const error = "Failed to load Google Maps API";
+        console.error("❌ Trip Modal:", error);
+        setMapsError(error);
+        delete (window as any)[callbackName];
+        reject(new Error(error));
+      };
+
+      document.head.appendChild(script);
+    });
+  };
+
+  // Initialize Google Map (simplified - no route planning)
+  const initializeMap = async () => {
+    if (!mapRef.current) {
+      console.log(
+        "⏳ Trip Modal: Map initialization skipped - mapRef not available"
+      );
+      return;
+    }
+
+    if (!window.google || !window.google.maps) {
+      console.log(
+        "⏳ Trip Modal: Map initialization skipped - Google Maps not loaded"
+      );
+      return;
+    }
+
+    if (!mapsLoaded) {
+      console.log(
+        "⏳ Trip Modal: Map initialization skipped - mapsLoaded is false"
+      );
+      return;
+    }
+
+    if (googleMapRef.current) {
+      console.log("⏳ Trip Modal: Map already initialized");
+      return;
+    }
+
+    console.log("🗺️ Initializing simplified trip tracking map...");
 
     try {
       const map = new google.maps.Map(mapRef.current, {
@@ -94,292 +189,126 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
             stylers: [{ visibility: "off" }],
           },
         ],
+        // Ensure map controls are visible
+        zoomControl: true,
+        mapTypeControl: false,
+        scaleControl: true,
+        streetViewControl: false,
+        rotateControl: false,
+        fullscreenControl: true,
       });
 
       googleMapRef.current = map;
 
-      // Initialize directions renderer
-      directionsRendererRef.current = new google.maps.DirectionsRenderer({
-        suppressMarkers: true, // We'll add custom markers
-        polylineOptions: {
-          strokeColor: "#2563EB",
-          strokeWeight: 4,
-          strokeOpacity: 0.8,
-        },
-      });
-      directionsRendererRef.current.setMap(map);
+      // Wait for map to be idle before proceeding
+      google.maps.event.addListenerOnce(map, "idle", () => {
+        console.log("✅ Simplified trip tracking map initialized and ready");
 
-      // Create pickup marker
-      pickupMarkerRef.current = new google.maps.Marker({
-        map,
-        title: "Pickup Location",
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          fillColor: "#10B981",
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 2,
-          scale: 10,
-        },
+        // If we already have location data, update marker immediately
+        if (location.location) {
+          console.log(
+            "🔄 Trip Modal: Map ready, updating marker with existing location"
+          );
+          updateSafeMarker();
+        }
       });
-
-      // Create delivery marker
-      deliveryMarkerRef.current = new google.maps.Marker({
-        map,
-        title: "Delivery Location",
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          fillColor: "#EF4444",
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 2,
-          scale: 10,
-        },
-      });
-
-      await geocodeAndDisplayRoute();
-      console.log("✅ Trip tracking map initialized");
     } catch (error) {
       console.error("❌ Error initializing trip map:", error);
-    }
-  };
-
-  // Geocode addresses and display route
-  const geocodeAndDisplayRoute = async () => {
-    if (!googleMapRef.current || !window.google) return;
-
-    const geocoder = new google.maps.Geocoder();
-    const directionsService = new google.maps.DirectionsService();
-
-    try {
-      console.log("📍 Geocoding addresses and creating route...");
-
-      // Geocode pickup address
-      const pickupResult = await new Promise<google.maps.GeocoderResult>(
-        (resolve, reject) => {
-          geocoder.geocode(
-            { address: `${trip.pickup_address}, South Africa` },
-            (results, status) => {
-              if (status === "OK" && results?.[0]) {
-                resolve(results[0]);
-              } else {
-                reject(new Error(`Pickup geocoding failed: ${status}`));
-              }
-            }
-          );
-        }
-      );
-
-      // Geocode delivery address
-      const deliveryResult = await new Promise<google.maps.GeocoderResult>(
-        (resolve, reject) => {
-          geocoder.geocode(
-            { address: `${trip.delivery_address}, South Africa` },
-            (results, status) => {
-              if (status === "OK" && results?.[0]) {
-                resolve(results[0]);
-              } else {
-                reject(new Error(`Delivery geocoding failed: ${status}`));
-              }
-            }
-          );
-        }
-      );
-
-      const pickupLocation = pickupResult.geometry.location;
-      const deliveryLocation = deliveryResult.geometry.location;
-
-      // Position markers
-      pickupMarkerRef.current?.setPosition(pickupLocation);
-      deliveryMarkerRef.current?.setPosition(deliveryLocation);
-
-      // Create info windows
-      const pickupInfoWindow = new google.maps.InfoWindow({
-        content: `
-          <div style="padding: 8px;">
-            <h3 style="margin: 0 0 4px 0; color: #10B981;">📍 Pickup Location</h3>
-            <p style="margin: 0; font-size: 12px;">${trip.pickup_address}</p>
-            <p style="margin: 4px 0 0 0; font-size: 11px; color: #666;">
-              Scheduled: ${format(
-                new Date(trip.scheduled_pickup),
-                "MMM d, HH:mm"
-              )}
-            </p>
-          </div>
-        `,
-      });
-
-      const deliveryInfoWindow = new google.maps.InfoWindow({
-        content: `
-          <div style="padding: 8px;">
-            <h3 style="margin: 0 0 4px 0; color: #EF4444;">🎯 Delivery Location</h3>
-            <p style="margin: 0; font-size: 12px;">${trip.delivery_address}</p>
-            <p style="margin: 4px 0 0 0; font-size: 11px; color: #666;">
-              Scheduled: ${format(
-                new Date(trip.scheduled_delivery),
-                "MMM d, HH:mm"
-              )}
-            </p>
-          </div>
-        `,
-      });
-
-      pickupMarkerRef.current?.addListener("click", () => {
-        pickupInfoWindow.open(googleMapRef.current, pickupMarkerRef.current);
-      });
-
-      deliveryMarkerRef.current?.addListener("click", () => {
-        deliveryInfoWindow.open(
-          googleMapRef.current,
-          deliveryMarkerRef.current
-        );
-      });
-
-      // Get and display route
-      const directionsResult = await new Promise<google.maps.DirectionsResult>(
-        (resolve, reject) => {
-          directionsService.route(
-            {
-              origin: pickupLocation,
-              destination: deliveryLocation,
-              travelMode: google.maps.TravelMode.DRIVING,
-              avoidTolls: false,
-              avoidHighways: false,
-            },
-            (result, status) => {
-              if (status === "OK" && result) {
-                resolve(result);
-              } else {
-                reject(new Error(`Directions failed: ${status}`));
-              }
-            }
-          );
-        }
-      );
-
-      directionsRendererRef.current?.setDirections(directionsResult);
-
-      // Fit map to show route
-      const bounds = new google.maps.LatLngBounds();
-      bounds.extend(pickupLocation);
-      bounds.extend(deliveryLocation);
-      googleMapRef.current.fitBounds(bounds);
-
-      console.log("✅ Route displayed successfully");
-    } catch (error) {
-      console.error("❌ Error creating route:", error);
-
-      // Fallback: just center on Johannesburg
-      googleMapRef.current.setCenter({ lat: -26.2041, lng: 28.0473 });
-      googleMapRef.current.setZoom(10);
+      setMapsError("Failed to initialize map");
     }
   };
 
   // Update safe marker position
   const updateSafeMarker = () => {
-    if (!googleMapRef.current || !location.location) return;
+    if (!googleMapRef.current) {
+      console.log(
+        "⏳ Trip Modal: Skipping marker update - googleMapRef not available"
+      );
+      return;
+    }
+
+    if (!location.location) {
+      console.log("⏳ Trip Modal: Skipping marker update - no location data");
+      return;
+    }
 
     const position = {
       lat: location.location.lat,
       lng: location.location.lng,
     };
 
-    if (!safeMarkerRef.current) {
-      // Create safe marker
-      safeMarkerRef.current = new google.maps.Marker({
-        position,
-        map: googleMapRef.current,
-        title: `Safe ${safe?.serial_number}`,
-        icon: {
-          path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-          fillColor: "#8B5CF6",
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 2,
-          scale: 8,
-          rotation: location.location.speed ? 45 : 0, // Rotate based on movement
-        },
-      });
+    console.log("📍 Trip Modal: Updating safe marker at:", position);
 
-      // Safe marker info window
-      const safeInfoWindow = new google.maps.InfoWindow({
-        content: `
-          <div style="padding: 8px; min-width: 200px;">
-            <h3 style="margin: 0 0 8px 0; color: #8B5CF6;">🚐 Safe ${
-              safe?.serial_number
-            }</h3>
-            <div style="font-size: 12px; line-height: 1.4;">
-              <p style="margin: 2px 0;"><strong>Driver:</strong> ${mobileUsername}</p>
-              <p style="margin: 2px 0;"><strong>Client:</strong> ${
-                trip.client_name
-              }</p>
-              <p style="margin: 2px 0;"><strong>Status:</strong> ${
-                location.status
-              }</p>
-              <p style="margin: 2px 0;"><strong>Location:</strong> ${position.lat.toFixed(
-                6
-              )}, ${position.lng.toFixed(6)}</p>
-              <p style="margin: 2px 0;"><strong>Accuracy:</strong> ±${
-                location.location.accuracy
-              }m</p>
-              ${
-                location.location.speed
-                  ? `<p style="margin: 2px 0;"><strong>Speed:</strong> ${location.location.speed} km/h</p>`
-                  : ""
-              }
-              <p style="margin: 2px 0;"><strong>Updated:</strong> ${formatDistanceToNow(
-                location.lastUpdate
-              )} ago</p>
+    try {
+      if (!safeMarkerRef.current) {
+        // Create safe marker
+        safeMarkerRef.current = new google.maps.Marker({
+          position,
+          map: googleMapRef.current,
+          title: `Safe ${safe?.serial_number}`,
+          icon: {
+            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            fillColor: "#8B5CF6",
+            fillOpacity: 1,
+            strokeColor: "#FFFFFF",
+            strokeWeight: 2,
+            scale: 12,
+          },
+        });
+
+        // Safe marker info window
+        const safeInfoWindow = new google.maps.InfoWindow({
+          content: `
+            <div style="padding: 8px; min-width: 200px;">
+              <h3 style="margin: 0 0 8px 0; color: #8B5CF6;">🚐 Safe ${
+                safe?.serial_number
+              }</h3>
+              <div style="font-size: 12px; line-height: 1.4;">
+                <p style="margin: 2px 0;"><strong>Driver:</strong> ${mobileUsername}</p>
+                <p style="margin: 2px 0;"><strong>Client:</strong> ${
+                  trip.client_name
+                }</p>
+                <p style="margin: 2px 0;"><strong>Status:</strong> ${
+                  location.status
+                }</p>
+                <p style="margin: 2px 0;"><strong>Location:</strong> ${position.lat.toFixed(
+                  6
+                )}, ${position.lng.toFixed(6)}</p>
+                <p style="margin: 2px 0;"><strong>Accuracy:</strong> ±${
+                  location.location.accuracy
+                }m</p>
+                ${
+                  location.location.speed
+                    ? `<p style="margin: 2px 0;"><strong>Speed:</strong> ${location.location.speed} km/h</p>`
+                    : ""
+                }
+                <p style="margin: 2px 0;"><strong>Updated:</strong> ${formatDistanceToNow(
+                  location.lastUpdate
+                )} ago</p>
+              </div>
             </div>
-          </div>
-        `,
-      });
+          `,
+        });
 
-      safeMarkerRef.current.addListener("click", () => {
-        safeInfoWindow.open(googleMapRef.current, safeMarkerRef.current);
-      });
-    } else {
-      // Update existing marker position
-      safeMarkerRef.current.setPosition(position);
+        safeMarkerRef.current.addListener("click", () => {
+          safeInfoWindow.open(googleMapRef.current, safeMarkerRef.current);
+        });
+
+        // Center map on safe location
+        googleMapRef.current.setCenter(position);
+        // Adjust zoom to show marker clearly
+        googleMapRef.current.setZoom(15);
+        console.log("✅ Trip Modal: Safe marker created and map centered");
+      } else {
+        // Update existing marker position
+        safeMarkerRef.current.setPosition(position);
+        // Re-center map on updated position
+        googleMapRef.current.setCenter(position);
+        console.log("✅ Trip Modal: Safe marker position updated");
+      }
+    } catch (error) {
+      console.error("❌ Trip Modal: Error updating safe marker:", error);
     }
-  };
-
-  // Load Google Maps
-  const loadGoogleMaps = (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if (window.google && window.google.maps) {
-        setMapsLoaded(true);
-        resolve();
-        return;
-      }
-
-      if (document.querySelector('script[src*="maps.googleapis.com"]')) {
-        const checkLoaded = () => {
-          if (window.google && window.google.maps) {
-            setMapsLoaded(true);
-            resolve();
-          } else {
-            setTimeout(checkLoaded, 100);
-          }
-        };
-        checkLoaded();
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${
-        import.meta.env.VITE_GOOGLE_MAPS_API_KEY
-      }&libraries=geometry&loading=async&callback=initTripMaps`;
-      script.async = true;
-
-      (window as any).initTripMaps = () => {
-        setMapsLoaded(true);
-        resolve();
-      };
-
-      script.onerror = () => reject(new Error("Failed to load Google Maps"));
-      document.head.appendChild(script);
-    });
   };
 
   // Get current safe location
@@ -440,17 +369,37 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
 
   // Initialize
   useEffect(() => {
-    loadGoogleMaps().then(() => {
-      initializeMap();
-    });
+    loadGoogleMaps()
+      .then(() => {
+        // Small delay to ensure DOM is ready
+        setTimeout(() => {
+          initializeMap();
+        }, 100);
+      })
+      .catch((error) => {
+        console.error("Failed to load Google Maps:", error);
+        setMapsError(error.message);
+      });
   }, []);
+
+  // Initialize map when mapsLoaded changes
+  useEffect(() => {
+    if (mapsLoaded && !mapsError && mapRef.current && !googleMapRef.current) {
+      console.log(
+        "🔄 Trip Modal: Initializing map after mapsLoaded state change"
+      );
+      setTimeout(() => {
+        initializeMap();
+      }, 100);
+    }
+  }, [mapsLoaded, mapsError]);
 
   // Update safe marker when location changes
   useEffect(() => {
-    if (mapsLoaded && location.location) {
+    if (mapsLoaded && location.location && !mapsError && googleMapRef.current) {
       updateSafeMarker();
     }
-  }, [location, mapsLoaded]);
+  }, [location, mapsLoaded, mapsError]);
 
   // Auto-refresh location
   useEffect(() => {
@@ -719,7 +668,8 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
 
           {/* Map */}
           <div className="flex-1 relative">
-            {!mapsLoaded && (
+            {/* Loading State */}
+            {!mapsLoaded && !mapsError && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
                 <div className="text-center">
                   <LoadingSpinner size="large" />
@@ -728,32 +678,45 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
               </div>
             )}
 
+            {/* Maps Error State */}
+            {mapsError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+                <div className="text-center">
+                  <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-red-400" />
+                  <p className="text-lg font-medium mb-2">Map Error</p>
+                  <p className="text-gray-600 text-sm max-w-xs mb-4">
+                    {mapsError}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setMapsError("");
+                      setMapsLoaded(false);
+                      loadGoogleMaps().then(initializeMap).catch(console.error);
+                    }}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Map Container */}
             <div
               ref={mapRef}
               className="w-full h-full"
-              style={{ display: mapsLoaded ? "block" : "none" }}
+              style={{
+                display: mapsLoaded && !mapsError ? "block" : "none",
+                minHeight: "400px",
+              }}
             />
 
             {/* Map Legend */}
-            {mapsLoaded && (
+            {mapsLoaded && !mapsError && location.location && (
               <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg p-3">
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                    <span>Pickup Location</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                    <span>Delivery Location</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-b-[10px] border-l-transparent border-r-transparent border-b-purple-500"></div>
-                    <span>Safe Position</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-0.5 bg-blue-500"></div>
-                    <span>Planned Route</span>
-                  </div>
+                <div className="flex items-center space-x-2 text-sm">
+                  <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-b-[10px] border-l-transparent border-r-transparent border-b-purple-500"></div>
+                  <span>Safe Position</span>
                 </div>
               </div>
             )}
