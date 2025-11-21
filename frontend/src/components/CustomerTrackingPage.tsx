@@ -111,7 +111,7 @@ export function CustomerTrackingPage({
   const initializeMap = () => {
     if (!mapRef.current || leafletMapRef.current || mapsError) return;
 
-    console.log("🗺️ Initializing customer tracking map...");
+    console.log("Initializing customer tracking map...");
 
     try {
       fixLeafletIcons();
@@ -135,7 +135,7 @@ export function CustomerTrackingPage({
         setTimeout(() => {
           if (leafletMapRef.current) {
             leafletMapRef.current.invalidateSize();
-            console.log("✅ Map size invalidated");
+            console.log("Map size invalidated");
           }
         }, 250);
 
@@ -153,7 +153,6 @@ export function CustomerTrackingPage({
     }
   };
 
-  // Update safe location
   // Update safe location
   const updateSafeLocation = async () => {
     if (!trip?.safes) return;
@@ -176,7 +175,6 @@ export function CustomerTrackingPage({
         `Getting live location for customer tracking (device: ${deviceId})`
       );
 
-      // Type the result properly
       const locationPromise =
         trackneticsService.getLocationByDeviceId(deviceId);
       const timeoutPromise = new Promise<never>((_, reject) =>
@@ -191,7 +189,6 @@ export function CustomerTrackingPage({
         return { success: false, error: "Location request timed out" };
       });
 
-      // Now TypeScript knows result has the correct type
       if (result.success && result.location) {
         const newLocation: SafeLocationData = {
           location: result.location,

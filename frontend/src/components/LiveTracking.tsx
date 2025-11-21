@@ -87,7 +87,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
   };
 
   // Update map markers
-  // Update map markers
   const updateMapMarkers = () => {
     if (!leafletMapRef.current || !mapsLoaded) {
       console.log("⏳ Map not ready for marker updates");
@@ -175,7 +174,7 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
         leafletMapRef.current.fitBounds(bounds, { padding: [50, 50] });
       }
 
-      // ADD THIS - Force map redraw
+      // orce map redraw
       if (leafletMapRef.current) {
         leafletMapRef.current.invalidateSize();
       }
