@@ -123,15 +123,12 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
   const handleArrived = async () => {
     console.log("Driver says they've arrived at delivery location");
 
-    // Show location verification step
     setCurrentStep("location");
     setLoading(true);
 
     try {
-      // Get current location first
       await getCurrentLocation();
 
-      // Send arrival notification to recipient
       if (trip.recipient_email) {
         console.log(
           "Sending arrival notification to recipient:",
@@ -164,16 +161,11 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
           );
 
           if (response.ok) {
-            const result = await response.json();
-            console.log("Arrival notification sent:", result);
-          } else {
-            console.warn("Arrival notification failed:", await response.text());
+            console.log("Arrival notification sent");
           }
         } catch (emailError) {
           console.warn("Could not send arrival notification:", emailError);
         }
-      } else {
-        console.log("No recipient email - skipping arrival notification");
       }
     } catch (err) {
       console.error("Error in arrival flow:", err);

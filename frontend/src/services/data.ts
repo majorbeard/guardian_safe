@@ -360,8 +360,10 @@ class DataService {
   }
 
   // Generate customer tracking URL
+  // Around line 360
   generateTrackingUrl(trackingToken: string): string {
-    const baseUrl = window.location.origin;
+    // Use environment variable or fallback to window.location
+    const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     return `${baseUrl}/track/${trackingToken}`;
   }
 
@@ -739,7 +741,6 @@ class DataService {
           ? this.generateTrackingUrl(trip.tracking_token)
           : null;
 
-      // Add 5 second timeout
       const emailPromise = supabase.functions.invoke(
         "send-client-booking-confirmation",
         {
@@ -752,7 +753,7 @@ class DataService {
             recipient_name: trip.recipient_name,
             scheduled_pickup: trip.scheduled_pickup,
             scheduled_delivery: trip.scheduled_delivery,
-            tracking_url: trackingUrl,
+            tracking_url: trackingUrl, // ✅ This now uses production URL
             priority: trip.priority || "normal",
           },
         }
@@ -763,11 +764,10 @@ class DataService {
       );
 
       await Promise.race([emailPromise, timeoutPromise]).catch(() => {
-        console.warn("Email timeout - continuing anyway");
+        console.warn("📧 Email timeout - continuing anyway");
       });
     } catch (error) {
-      console.error("Client email error:", error);
-      // Don't throw - let the trip creation succeed
+      console.error("📧 Client email error (non-blocking):", error);
     }
   }
 

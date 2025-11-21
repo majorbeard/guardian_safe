@@ -2,18 +2,8 @@ import { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   appId: "com.guardiansafe.mobile",
-  appName: "guardian-safe-mobile",
+  appName: "Guardian Safe Driver",
   webDir: "dist",
-  server: {
-    url: "https://guardian-safe-1uv582r1n-majorbeards-projects.vercel.app",
-    hostname: "guardian-safe-1uv582r1n-majorbeards-projects.vercel.app",
-
-    androidScheme: "https",
-    cleartext: true, // Keeps it permissive for the Alpha
-    allowNavigation: [
-      "guardian-safe-1uv582r1n-majorbeards-projects.vercel.app",
-    ],
-  },
   plugins: {
     BluetoothLe: {
       displayStrings: {
