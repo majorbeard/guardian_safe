@@ -1,6 +1,10 @@
 import { supabase } from "../lib/supabase";
 import { dataActions } from "../store/data";
 import { currentUser } from "../store/auth";
+import { validateTripData } from "../utils/validation";
+import { toast } from "../components/Toast";
+import { retryRequest } from "../utils/networkHelpers";
+
 import type {
   Safe,
   Trip,
@@ -50,6 +54,8 @@ export interface TripValidationResult {
 class DataService {
   private safesSubscription: any = null;
   private tripsSubscription: any = null;
+  private reconnectionAttempts = 0;
+  private maxReconnectionAttempts = 5;
 
   async loadUserData() {
     const user = currentUser.value;
@@ -68,33 +74,65 @@ class DataService {
   }
 
   async loadSafes() {
-    // RLS handles filtering - owner sees all, admin sees assigned
-    const { data, error } = await supabase
-      .from("safes")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      const { data, error } = await retryRequest(
+        async () => {
+          return await supabase
+            .from("safes")
+            .select("*")
+            .order("created_at", { ascending: false });
+        },
+        {
+          maxRetries: 3,
+          delayMs: 1000,
+          onRetry: (attempt) => {
+            console.log(`Retrying safes load (attempt ${attempt})`);
+          },
+        }
+      );
 
-    if (error) {
-      console.error("Failed to load safes:", error);
-      return;
+      if (error) {
+        console.error("Failed to load safes:", error);
+        toast.error("Failed to load safes");
+        return;
+      }
+
+      dataActions.setSafes(data || []);
+    } catch (error) {
+      console.error("Error loading safes:", error);
+      toast.error("Unable to load safes. Please refresh.");
     }
-
-    dataActions.setSafes(data || []);
   }
 
   async loadTrips() {
-    // RLS handles filtering automatically
-    const { data, error } = await supabase
-      .from("trips")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      const { data, error } = await retryRequest(
+        async () => {
+          return await supabase
+            .from("trips")
+            .select("*")
+            .order("created_at", { ascending: false });
+        },
+        {
+          maxRetries: 3,
+          delayMs: 1000,
+          onRetry: (attempt) => {
+            console.log(`Retrying trips load (attempt ${attempt})`);
+          },
+        }
+      );
 
-    if (error) {
-      console.error("Failed to load trips:", error);
-      return;
+      if (error) {
+        console.error("Failed to load trips:", error);
+        toast.error("Failed to load trips");
+        return;
+      }
+
+      dataActions.setTrips(data || []);
+    } catch (error) {
+      console.error("Error loading trips:", error);
+      toast.error("Unable to load trips. Please refresh.");
     }
-
-    dataActions.setTrips(data || []);
   }
 
   async createSafe(safeData: {
@@ -122,59 +160,50 @@ class DataService {
     return { success: true, safe: data };
   }
 
-  // Enhanced trip creation with validation and new fields
+  // Trip creation with validation and new fields
   async createTrip(tripData: any) {
     const user = currentUser.value;
     if (!user) {
       return { success: false, error: "User not authenticated" };
     }
 
+    // Server-side validation
+    const validation = validateTripData(tripData);
+    if (!validation.valid) {
+      const errorMessages = Object.values(validation.errors).join(", ");
+      return { success: false, error: errorMessages };
+    }
+
+    // Use sanitized data
+    const sanitizedData = validation.sanitized!;
+
     // Determine recipient
-    const recipientName = tripData.recipient_is_client
-      ? tripData.client_name
-      : tripData.recipient_name;
+    const recipientName = sanitizedData.recipient_is_client
+      ? sanitizedData.client_name
+      : sanitizedData.recipient_name;
 
-    const recipientEmail = tripData.recipient_is_client
-      ? tripData.client_email
-      : tripData.recipient_email;
+    const recipientEmail = sanitizedData.recipient_is_client
+      ? sanitizedData.client_email
+      : sanitizedData.recipient_email;
 
-    const recipientPhone = tripData.recipient_is_client
-      ? tripData.client_phone
-      : tripData.recipient_phone;
+    const recipientPhone = sanitizedData.recipient_is_client
+      ? sanitizedData.client_phone
+      : sanitizedData.recipient_phone;
 
-    // Client always gets tracking link
-    const customerTrackingEnabled = !!tripData.client_email;
+    const customerTrackingEnabled = !!sanitizedData.client_email;
 
     const enhancedTripData = {
-      ...tripData,
+      ...sanitizedData,
       created_by: user.id,
       status: "pending",
-      priority: tripData.priority || "normal",
-      requires_signature: tripData.requires_signature || false,
+      priority: sanitizedData.priority || "normal",
+      requires_signature: sanitizedData.requires_signature || false,
       customer_tracking_enabled: customerTrackingEnabled,
       recipient_name: recipientName,
       recipient_email: recipientEmail,
       recipient_phone: recipientPhone,
-      recipient_is_client: tripData.recipient_is_client || false,
-      ...(tripData.client_phone && { client_phone: tripData.client_phone }),
-      ...(tripData.client_email && { client_email: tripData.client_email }),
-      ...(tripData.pickup_contact_name && {
-        pickup_contact_name: tripData.pickup_contact_name,
-      }),
-      ...(tripData.pickup_contact_phone && {
-        pickup_contact_phone: tripData.pickup_contact_phone,
-      }),
-      ...(tripData.delivery_contact_name && {
-        delivery_contact_name: tripData.delivery_contact_name,
-      }),
-      ...(tripData.delivery_contact_phone && {
-        delivery_contact_phone: tripData.delivery_contact_phone,
-      }),
-      ...(tripData.delivery_notes && {
-        delivery_notes: tripData.delivery_notes,
-      }),
-      ...(tripData.recurring?.enabled && {
-        recurring_config: tripData.recurring,
+      ...(sanitizedData.recurring?.enabled && {
+        recurring_config: sanitizedData.recurring,
       }),
     };
 
@@ -189,29 +218,28 @@ class DataService {
 
       if (error) {
         console.error("Supabase error:", error);
+        toast.error("Failed to create trip. Please try again.");
         return { success: false, error: error.message };
       }
 
       if (enhancedTripData.client_email) {
-        console.log("Sending booking confirmation to CLIENT...");
-
-        // Fire and forget with timeout
         this.sendClientBookingConfirmation(data).catch((err) => {
           console.warn("Email failed (non-blocking):", err);
+          toast.warning("Trip created but confirmation email failed to send");
         });
       }
 
-      // Return immediately, don't wait for email
+      toast.success("Trip booked successfully!");
       return { success: true, trip: data };
     } catch (err) {
       console.error("Exception creating trip:", err);
+      toast.error("Network error. Please check your connection.");
       return {
         success: false,
         error: "Failed to create trip booking. Please try again.",
       };
     }
   }
-
   // Validate trip data before submission
   validateTripData(
     data: TripBookingData,
@@ -441,33 +469,38 @@ class DataService {
   }
 
   async updateTripStatus(tripId: string, status: TripStatus) {
-    const { data, error } = await supabase
-      .from("trips")
-      .update({
-        status,
-        updated_at: new Date().toISOString(),
-        // Set actual times when status changes
-        ...(status === "in_transit" && {
-          actual_pickup_time: new Date().toISOString(),
-        }),
-        ...(status === "delivered" && {
-          actual_delivery_time: new Date().toISOString(),
-        }),
-      })
-      .eq("id", tripId)
-      .select("*, safes(serial_number)")
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("trips")
+        .update({
+          status,
+          updated_at: new Date().toISOString(),
+          ...(status === "in_transit" && {
+            actual_pickup_time: new Date().toISOString(),
+          }),
+          ...(status === "delivered" && {
+            actual_delivery_time: new Date().toISOString(),
+          }),
+        })
+        .eq("id", tripId)
+        .select("*, safes(serial_number)")
+        .single();
 
-    if (error) {
-      throw new Error(error.message);
+      if (error) {
+        toast.error("Failed to update trip status");
+        throw new Error(error.message);
+      }
+
+      if (data.customer_tracking_enabled && data.client_email) {
+        await this.sendStatusUpdateEmail(data, status);
+      }
+
+      toast.success(`Trip status updated to ${status.replace("_", " ")}`);
+      return { success: true, trip: data };
+    } catch (error) {
+      console.error("Error updating trip status:", error);
+      throw error;
     }
-
-    // Send status update email if customer tracking is enabled
-    if (data.customer_tracking_enabled && data.client_email) {
-      await this.sendStatusUpdateEmail(data, status);
-    }
-
-    return { success: true, trip: data };
   }
 
   // Send status update email
@@ -624,7 +657,7 @@ class DataService {
     const user = currentUser.value;
     if (!user) return;
 
-    // Subscribe to safes - RLS filters automatically
+    // Subscribe to safes
     this.safesSubscription = supabase
       .channel("safes-changes")
       .on(
@@ -641,9 +674,17 @@ class DataService {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("Safes subscription status:", status);
 
-    // Subscribe to trips - RLS filters automatically
+        if (status === "CHANNEL_ERROR") {
+          this.handleSubscriptionError("safes");
+        } else if (status === "SUBSCRIBED") {
+          this.reconnectionAttempts = 0;
+        }
+      });
+
+    // Subscribe to trips
     this.tripsSubscription = supabase
       .channel("trips-changes")
       .on(
@@ -660,7 +701,39 @@ class DataService {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("Trips subscription status:", status);
+
+        if (status === "CHANNEL_ERROR") {
+          this.handleSubscriptionError("trips");
+        } else if (status === "SUBSCRIBED") {
+          this.reconnectionAttempts = 0;
+        }
+      });
+  }
+
+  private handleSubscriptionError(channelName: string) {
+    console.error(`Subscription error for ${channelName}`);
+
+    if (this.reconnectionAttempts < this.maxReconnectionAttempts) {
+      this.reconnectionAttempts++;
+      const delay = Math.min(
+        1000 * Math.pow(2, this.reconnectionAttempts),
+        30000
+      );
+
+      console.log(
+        `Attempting to reconnect ${channelName} in ${delay}ms (attempt ${this.reconnectionAttempts})`
+      );
+
+      setTimeout(() => {
+        this.cleanup();
+        this.setupRealtimeSubscriptions();
+      }, delay);
+    } else {
+      console.error(`Max reconnection attempts reached for ${channelName}`);
+      toast.error("Real-time updates disconnected. Please refresh the page.");
+    }
   }
 
   cleanup() {

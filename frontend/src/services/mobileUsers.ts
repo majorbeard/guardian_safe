@@ -11,13 +11,10 @@ export interface MobileUserCredentials {
 }
 
 class MobileUserService {
-  // Generate username from safe serial number
   generateUsername(serialNumber: string): string {
-    // Convert "GS-2024-001" to "gs2024001_driver"
     return serialNumber.toLowerCase().replace(/[^a-z0-9]/g, "") + "_driver";
   }
 
-  // Generate secure password
   generatePassword(): string {
     const chars =
       "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*";
@@ -28,18 +25,31 @@ class MobileUserService {
     return password;
   }
 
-  // Hash password for storage
+  // Hash password using Edge Function
   private async hashPassword(password: string): Promise<string> {
-    // Simple hash for demo - in production use proper bcrypt
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hash = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(hash))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      throw new Error("Authentication required");
+    }
+
+    const { data, error } = await supabase.functions.invoke("hash-password", {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: { password },
+    });
+
+    if (error || !data?.hash) {
+      console.error("Password hashing failed:", error);
+      throw new Error("Failed to hash password");
+    }
+
+    return data.hash;
   }
 
-  // Create mobile app user
   async createMobileUser(
     safeId: string,
     serialNumber: string,
@@ -50,12 +60,12 @@ class MobileUserService {
     error?: string;
   }> {
     try {
-      // Generate credentials
       const username = this.generateUsername(serialNumber);
       const password = this.generatePassword();
+
+      // Hash password via Edge Function
       const passwordHash = await this.hashPassword(password);
 
-      // Get current user for created_by
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -63,7 +73,6 @@ class MobileUserService {
         return { success: false, error: "User not authenticated" };
       }
 
-      // Create mobile user record
       const { error } = await supabase
         .from("mobile_users")
         .insert({
@@ -91,7 +100,6 @@ class MobileUserService {
     }
   }
 
-  // Deactivate mobile user (when safe is deactivated)
   async deactivateMobileUser(
     safeId: string
   ): Promise<{ success: boolean; error?: string }> {
@@ -114,7 +122,6 @@ class MobileUserService {
     }
   }
 
-  // Get mobile user for safe
   async getMobileUserBySafe(safeId: string) {
     try {
       const { data, error } = await supabase
@@ -125,7 +132,6 @@ class MobileUserService {
         .single();
 
       if (error && error.code !== "PGRST116") {
-        // Not found is ok
         console.error("Failed to get mobile user:", error);
         return null;
       }

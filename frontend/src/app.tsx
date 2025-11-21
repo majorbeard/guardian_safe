@@ -8,13 +8,15 @@ import { AdminDashboard } from "./components/AdminDashboard";
 import { CustomerTrackingPage } from "./components/CustomerTrackingPage";
 import { ChangePasswordModal } from "./components/ChangePasswordModal";
 import { LoadingSpinner } from "./components/LoadingSpinner";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ToastContainer } from "./components/Toast";
+import { setupNetworkListeners } from "./utils/networkHelpers";
 
 export function App() {
   const authenticated = isAuthenticated.value;
   const loading = isLoading.value;
   const user = currentUser.value;
 
-  // Simple client-side routing
   const currentPath = useMemo(() => {
     return window.location.pathname;
   }, [window.location.pathname]);
@@ -25,18 +27,19 @@ export function App() {
   }, [currentPath]);
 
   useEffect(() => {
-    // Initialize auth and data services
+    // Setup network listeners
+    setupNetworkListeners();
+
+    // Initialize auth
     authService.initialize();
   }, []);
 
   useEffect(() => {
-    // Load data when user is authenticated
     if (authenticated && user) {
       dataService.loadUserData();
       dataService.setupRealtimeSubscriptions();
     }
 
-    // Cleanup on unmount
     return () => {
       if (authenticated) {
         dataService.cleanup();
@@ -44,9 +47,13 @@ export function App() {
     };
   }, [authenticated, user]);
 
-  // Handle customer tracking route (public access)
   if (trackingToken) {
-    return <CustomerTrackingPage trackingToken={trackingToken} />;
+    return (
+      <ErrorBoundary>
+        <ToastContainer />
+        <CustomerTrackingPage trackingToken={trackingToken} />
+      </ErrorBoundary>
+    );
   }
 
   if (loading) {
@@ -58,15 +65,20 @@ export function App() {
   }
 
   if (!authenticated) {
-    return <LoginPage />;
+    return (
+      <ErrorBoundary>
+        <ToastContainer />
+        <LoginPage />
+      </ErrorBoundary>
+    );
   }
 
   return (
-    <>
+    <ErrorBoundary>
+      <ToastContainer />
       {user?.must_change_password && <ChangePasswordModal />}
-
       {user?.role === "owner" ? <OwnerDashboard /> : <AdminDashboard />}
-    </>
+    </ErrorBoundary>
   );
 }
 

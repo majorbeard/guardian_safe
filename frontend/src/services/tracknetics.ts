@@ -1,10 +1,5 @@
 import { supabase } from "../lib/supabase";
-
-interface TrackneticsCredentials {
-  username: string;
-  password: string;
-  apiKey?: string;
-}
+import { withTimeout } from "../utils/requestHelpers";
 
 interface LoginResponse {
   state: string;
@@ -41,16 +36,7 @@ interface LocationData {
 }
 
 class TrackneticsService {
-  private credentials: TrackneticsCredentials;
   private currentSession: { userID?: string; key?: string } | null = null;
-
-  constructor() {
-    this.credentials = {
-      username: import.meta.env.VITE_TRACKNETICS_USERNAME || "",
-      password: import.meta.env.VITE_TRACKNETICS_PASSWORD || "",
-      apiKey: import.meta.env.VITE_TRACKNETICS_API_KEY || "",
-    };
-  }
 
   // Make API call through Supabase Edge Function proxy
   private async apiCall(
@@ -58,15 +44,33 @@ class TrackneticsService {
     params: Record<string, any> = {}
   ): Promise<any> {
     try {
-      const { data, error } = await supabase.functions.invoke(
-        "tracknetics-proxy",
-        {
+      // Get current session for authentication
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("Authentication required");
+      }
+
+      // Timeout
+      const result = await withTimeout(
+        supabase.functions.invoke("tracknetics-proxy", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
           body: {
             operation,
             params,
           },
+        }),
+        {
+          timeoutMs: 30000,
+          showErrorToast: true,
         }
       );
+
+      const { data, error } = result;
 
       if (error) {
         console.error("Proxy call error:", error);
@@ -83,10 +87,8 @@ class TrackneticsService {
   // Login and get authentication key
   async login(): Promise<{ success: boolean; error?: string }> {
     try {
-      const data: LoginResponse = await this.apiCall("Login", {
-        name: this.credentials.username,
-        pass: this.credentials.password,
-      });
+      // Edge function handles credentials internally
+      const data: LoginResponse = await this.apiCall("Login", {});
 
       if (data.state === "0" && data.userInfo) {
         this.currentSession = {
@@ -212,12 +214,11 @@ class TrackneticsService {
 
     const location = locationResult.location;
 
-    // Convert to standard format
     if (location.lat && location.lng) {
       const standardLocation = {
         lat: parseFloat(location.lat),
         lng: parseFloat(location.lng),
-        accuracy: location.isGPS === "1" ? 10 : 100, // GPS vs LBS accuracy estimate
+        accuracy: location.isGPS === "1" ? 10 : 100,
         timestamp: location.positionTime
           ? new Date(location.positionTime).getTime()
           : Date.now(),
