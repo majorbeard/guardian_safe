@@ -12,7 +12,7 @@ interface MobileUser {
     battery_level: number;
     is_locked: boolean;
     tracking_device_id?: string;
-  };
+  } | null; // Allow null
   is_active: boolean;
   created_at: string;
 }
@@ -32,7 +32,7 @@ export const authState = signal<MobileAuthState>({
 
 // Computed values
 export const currentUser = computed(() => authState.value.user);
-export const currentSafe = computed(() => authState.value.user?.safe);
+export const currentSafe = computed(() => authState.value.user?.safe || null);
 export const isAuthenticated = computed(() => authState.value.isAuthenticated);
 export const isLoading = computed(() => authState.value.loading);
 
@@ -68,6 +68,21 @@ export const authActions = {
         user: {
           ...authState.value.user,
           ...updates,
+        },
+      };
+    }
+  },
+
+  updateSafe: (safeUpdates: Partial<NonNullable<MobileUser["safe"]>>) => {
+    if (authState.value.user && authState.value.user.safe) {
+      authState.value = {
+        ...authState.value,
+        user: {
+          ...authState.value.user,
+          safe: {
+            ...authState.value.user.safe,
+            ...safeUpdates,
+          },
         },
       };
     }

@@ -34,88 +34,80 @@ class MobileAuthService {
   }
 
   async login(username: string, password: string) {
-    console.log("Attempting login for:", username);
+    console.log("Attempting mobile login for:", username);
 
     try {
-      const passwordHash = await this.hashPassword(password);
-
-      const { data: users, error: findError } = await supabase
-        .from("mobile_users")
-        .select("*")
-        .eq("username", username)
-        .eq("is_active", true);
-
-      console.log("User lookup error:", findError);
-
-      if (findError) {
-        console.error("Database error:", findError);
-        return { success: false, error: "Database connection error" };
-      }
-
-      if (!users || users.length === 0) {
-        console.log("No user found with username:", username);
-        return { success: false, error: "Invalid username or password" };
-      }
-
-      const user = users[0];
-      console.log("Found user:", user.username);
-
-      if (user.password_hash !== passwordHash) {
-        return { success: false, error: "Invalid username or password" };
-      }
-
-      console.log("Password verified");
-
-      const { data: safe, error: safeError } = await supabase
-        .from("safes")
-        .select("*")
-        .eq("id", user.safe_id)
-        .single();
-
-      console.log("Safe lookup error:", safeError);
-
-      if (safeError || !safe) {
-        console.error("Safe not found:", safeError);
-        return { success: false, error: "Safe not accessible" };
-      }
-
-      const mobileUser = {
-        id: user.id,
-        username: user.username,
-        driver_name: user.driver_name,
-        safe_id: user.safe_id,
-        safe: {
-          id: safe.id,
-          serial_number: safe.serial_number,
-          status: safe.status,
-          battery_level: safe.battery_level,
-          is_locked: safe.is_locked,
-          tracking_device_id: safe.tracking_device_id,
+      // Call the mobile-auth Edge Function
+      const { data, error } = await supabase.functions.invoke("mobile-auth", {
+        body: {
+          username: username.trim(),
+          password: password,
         },
-        is_active: user.is_active,
-        created_at: user.created_at,
-      };
+      });
 
-      console.log("Login successful for:", mobileUser.username);
+      if (error) {
+        console.error("Mobile auth error:", error);
+        return { success: false, error: "Login failed. Please try again." };
+      }
+
+      if (!data.success) {
+        console.log("Login failed:", data.error);
+        return { success: false, error: data.error || "Invalid credentials" };
+      }
+
+      console.log("Login successful for:", data.user.username);
+
+      // Store session token
+      this.storeSession(data.session.token, data.session.expires_at);
+
+      // Create mobile user object with proper typing
+      const mobileUser = {
+        id: data.user.id as string,
+        username: data.user.username as string,
+        driver_name: data.user.driver_name as string | undefined,
+        safe_id: data.user.safe_id as string,
+        safe: data.safe
+          ? {
+              id: data.safe.id as string,
+              serial_number: data.safe.serial_number as string,
+              status: data.safe.status as string,
+              battery_level: data.safe.battery_level as number,
+              is_locked: data.safe.is_locked as boolean,
+              tracking_device_id: (data.safe.tracking_device_id ||
+                data.safe.tracknetics_device_id) as string | undefined,
+            }
+          : null,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
 
       this.storeUser(mobileUser);
       authActions.setUser(mobileUser);
 
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login exception:", error);
-      return { success: false, error: "Login failed. Please try again." };
+      return { success: false, error: "Network error. Please try again." };
     }
   }
 
   async logout() {
     console.log("Logging out...");
     this.clearStoredUser();
+    this.clearSession();
     authActions.logout();
   }
 
   private async validateAndRefreshUser(storedUser: any): Promise<boolean> {
     try {
+      // Check if session is still valid
+      const session = this.getStoredSession();
+      if (!session || new Date(session.expires_at) < new Date()) {
+        console.log("Session expired");
+        return false;
+      }
+
+      // Verify user still exists and is active
       const { data: user, error: userError } = await supabase
         .from("mobile_users")
         .select("*")
@@ -124,29 +116,40 @@ class MobileAuthService {
         .single();
 
       if (userError || !user) {
+        console.log("User validation failed:", userError);
         return false;
       }
 
+      // Get fresh safe data
       const { data: safe, error: safeError } = await supabase
         .from("safes")
         .select("*")
         .eq("id", user.safe_id)
         .single();
 
-      if (safeError || !safe) {
-        return false;
+      if (safeError) {
+        console.log("Safe lookup failed:", safeError);
+        // Continue with null safe
       }
 
       const refreshedUser = {
-        ...user,
-        safe: {
-          id: safe.id,
-          serial_number: safe.serial_number,
-          status: safe.status,
-          battery_level: safe.battery_level,
-          is_locked: safe.is_locked,
-          tracking_device_id: safe.tracking_device_id,
-        },
+        id: user.id as string,
+        username: user.username as string,
+        driver_name: user.driver_name as string | undefined,
+        safe_id: user.safe_id as string,
+        safe: safe
+          ? {
+              id: safe.id as string,
+              serial_number: safe.serial_number as string,
+              status: safe.status as string,
+              battery_level: safe.battery_level as number,
+              is_locked: safe.is_locked as boolean,
+              tracking_device_id: (safe.tracking_device_id ||
+                safe.tracknetics_device_id) as string | undefined,
+            }
+          : null,
+        is_active: user.is_active as boolean,
+        created_at: user.created_at as string,
       };
 
       this.storeUser(refreshedUser);
@@ -184,13 +187,41 @@ class MobileAuthService {
     }
   }
 
-  private async hashPassword(password: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hash = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(hash))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+  private getStoredSession(): { token: string; expires_at: string } | null {
+    try {
+      const stored = localStorage.getItem("guardian_mobile_session");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private storeSession(token: string, expires_at: string): void {
+    try {
+      localStorage.setItem(
+        "guardian_mobile_session",
+        JSON.stringify({ token, expires_at })
+      );
+    } catch (error) {
+      console.error("Failed to store session:", error);
+    }
+  }
+
+  private clearSession(): void {
+    try {
+      localStorage.removeItem("guardian_mobile_session");
+    } catch (error) {
+      console.error("Failed to clear session:", error);
+    }
+  }
+
+  // Get current session token for authenticated requests
+  getSessionToken(): string | null {
+    const session = this.getStoredSession();
+    if (!session || new Date(session.expires_at) < new Date()) {
+      return null;
+    }
+    return session.token;
   }
 }
 

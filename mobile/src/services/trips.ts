@@ -1,12 +1,17 @@
 import { supabase } from "./supabase";
 import { currentUser } from "../store/auth";
 import { tripsActions } from "../store/trips";
+import { mobileAuthService } from "./auth";
 
 interface TripData {
   id: string;
   safe_id: string;
   client_name: string;
   client_email?: string;
+  recipient_name?: string;
+  recipient_email?: string;
+  recipient_phone?: string;
+  recipient_is_client?: boolean;
   pickup_address: string;
   delivery_address: string;
   status: "pending" | "in_transit" | "delivered" | "cancelled";
@@ -29,6 +34,14 @@ class TripsService {
       return;
     }
 
+    // Verify session is still valid
+    const sessionToken = mobileAuthService.getSessionToken();
+    if (!sessionToken) {
+      console.log("Session expired, logging out");
+      await mobileAuthService.logout();
+      return;
+    }
+
     console.log("Loading trips for safe_id:", user.safe_id);
     tripsActions.setLoading(true);
 
@@ -45,6 +58,14 @@ class TripsService {
 
       if (error) {
         console.error("Failed to load trips:", error);
+
+        // If unauthorized, session might be invalid
+        if (error.code === "PGRST301" || error.message?.includes("JWT")) {
+          console.log("Session invalid, logging out");
+          await mobileAuthService.logout();
+          return;
+        }
+
         tripsActions.setError("Failed to load trips");
         return;
       }
@@ -61,24 +82,34 @@ class TripsService {
 
   async startTrip(tripId: string) {
     try {
-      const { data, error } = await supabase
-        .from("trips")
-        .update({
-          status: "in_transit",
-          actual_pickup_time: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", tripId)
-        .select()
-        .single();
+      const sessionToken = mobileAuthService.getSessionToken();
 
-      if (error) {
-        return { success: false, error: error.message };
+      const { data, error } = await supabase.functions.invoke(
+        "mobile-trip-action",
+        {
+          headers: {
+            "x-session-token": sessionToken || "",
+          },
+          body: {
+            action: "start_trip",
+            trip_id: tripId,
+          },
+        }
+      );
+
+      if (error || !data.success) {
+        console.error("Failed to start trip:", error || data.error);
+        return {
+          success: false,
+          error: data?.error || error?.message || "Failed to start trip",
+        };
       }
 
-      tripsActions.updateTrip(tripId, data);
-      return { success: true, trip: data };
-    } catch (err) {
+      tripsActions.updateTrip(tripId, data.trip);
+      await this.logActivity("trip_started", tripId, "Trip started");
+
+      return { success: true, trip: data.trip };
+    } catch (err: any) {
       console.error("Error starting trip:", err);
       return { success: false, error: "Failed to start trip" };
     }
@@ -88,32 +119,54 @@ class TripsService {
     console.log("Attempting to complete trip:", tripId);
 
     try {
-      const { data, error } = await supabase
-        .from("trips")
-        .update({
-          status: "delivered",
-          actual_delivery_time: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", tripId)
-        .select("*")
-        .single();
+      const sessionToken = mobileAuthService.getSessionToken();
 
-      console.log("Complete trip result:", data);
+      if (!sessionToken) {
+        return {
+          success: false,
+          error: "Session expired. Please login again.",
+        };
+      }
+
+      const { data, error } = await supabase.functions.invoke(
+        "mobile-trip-action",
+        {
+          headers: {
+            "x-session-token": sessionToken,
+          },
+          body: {
+            action: "complete_trip",
+            trip_id: tripId,
+          },
+        }
+      );
+
+      console.log("Complete trip response:", data);
       console.log("Complete trip error:", error);
 
       if (error) {
-        console.error("Failed to complete trip:", error);
-        return { success: false, error: error.message };
+        console.error("Edge function error:", error);
+        return {
+          success: false,
+          error: error.message || "Failed to complete trip",
+        };
+      }
+
+      if (!data.success) {
+        console.error("Failed to complete trip:", data.error);
+        return {
+          success: false,
+          error: data.error || "Failed to complete trip",
+        };
       }
 
       console.log("Trip completed successfully!");
 
       // Send delivery confirmation to CLIENT
-      if (data.client_email) {
+      if (data.trip.client_email) {
         console.log(
           "Sending delivery confirmation to client:",
-          data.client_email
+          data.trip.client_email
         );
 
         try {
@@ -130,12 +183,13 @@ class TripsService {
                 apikey: anonKey,
               },
               body: JSON.stringify({
-                to: data.client_email,
-                client_name: data.client_name,
-                recipient_name: data.recipient_name || data.client_name,
-                trip_id: data.id,
-                delivery_address: data.delivery_address,
-                delivered_at: data.actual_delivery_time,
+                to: data.trip.client_email,
+                client_name: data.trip.client_name,
+                recipient_name:
+                  data.trip.recipient_name || data.trip.client_name,
+                trip_id: data.trip.id,
+                delivery_address: data.trip.delivery_address,
+                delivered_at: data.trip.actual_delivery_time,
               }),
             }
           );
@@ -154,11 +208,40 @@ class TripsService {
         }
       }
 
-      tripsActions.updateTrip(tripId, data);
-      return { success: true, trip: data };
-    } catch (err) {
+      tripsActions.updateTrip(tripId, data.trip);
+
+      // Log audit trail
+      await this.logActivity(
+        "trip_completed",
+        tripId,
+        "Trip completed and safe unlocked"
+      );
+
+      return { success: true, trip: data.trip };
+    } catch (err: any) {
       console.error("Exception completing trip:", err);
-      return { success: false, error: "Failed to complete trip" };
+      return {
+        success: false,
+        error: "Failed to complete trip. Please try again.",
+      };
+    }
+  }
+
+  private async logActivity(event: string, tripId: string, details: string) {
+    try {
+      const user = currentUser.value;
+      await supabase.from("activity_log").insert({
+        event,
+        user_type: "mobile",
+        user_id: user?.username || "unknown",
+        safe_id: user?.safe_id,
+        trip_id: tripId,
+        details,
+        success: true,
+        created_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("Failed to log activity:", err);
     }
   }
 
@@ -192,14 +275,20 @@ class TripsService {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("Realtime subscription status:", status);
+
+        if (status === "CHANNEL_ERROR") {
+          console.error("Realtime subscription error");
+        }
+      });
   }
 
   private showTripNotification(trip: TripData) {
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification("New Trip Assigned!", {
         body: `Delivery for ${trip.client_name} - ${trip.pickup_address}`,
-        icon: "/favicon.ico",
+        icon: "/vite.svg",
       });
     }
 
