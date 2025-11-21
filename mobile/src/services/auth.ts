@@ -10,27 +10,24 @@ class MobileAuthService {
     console.log("🔄 Initializing mobile auth...");
 
     try {
-      // Check for stored user
       const storedUser = this.getStoredUser();
 
       if (storedUser) {
-        console.log("📱 Found stored user:", storedUser.username);
-
-        // Validate user is still active and get fresh safe data
+        console.log("Found stored user:", storedUser.username);
         const isValid = await this.validateAndRefreshUser(storedUser);
 
         if (isValid) {
-          console.log("✅ Stored user is valid");
+          console.log("Stored user is valid");
           return;
         } else {
-          console.log("❌ Stored user is invalid, clearing...");
+          console.log("Stored user is invalid, clearing...");
           this.clearStoredUser();
         }
       }
 
-      console.log("📱 No valid stored user found");
+      console.log("No valid stored user found");
     } catch (error) {
-      console.error("❌ Auth initialization error:", error);
+      console.error("Auth initialization error:", error);
       this.clearStoredUser();
     } finally {
       authActions.setLoading(false);
@@ -38,62 +35,57 @@ class MobileAuthService {
   }
 
   async login(username: string, password: string) {
-    console.log("🔑 Attempting login for:", username);
+    console.log("Attempting login for:", username);
 
     try {
-      // Step 1: Generate password hash
       const passwordHash = await this.hashPassword(password);
-      console.log("🔐 Generated hash:", passwordHash);
+      console.log("Generated hash:", passwordHash);
 
-      // Step 2: Find user by username first (no password check yet)
       const { data: users, error: findError } = await supabase
         .from("mobile_users")
         .select("*")
         .eq("username", username)
         .eq("is_active", true);
 
-      console.log("👤 User lookup result:", users);
-      console.log("👤 User lookup error:", findError);
+      console.log("User lookup result:", users);
+      console.log("User lookup error:", findError);
 
       if (findError) {
-        console.error("❌ Database error:", findError);
+        console.error("Database error:", findError);
         return { success: false, error: "Database connection error" };
       }
 
       if (!users || users.length === 0) {
-        console.log("❌ No user found with username:", username);
+        console.log("No user found with username:", username);
         return { success: false, error: "Invalid username or password" };
       }
 
       const user = users[0];
-      console.log("👤 Found user:", user.username);
-      console.log("🔐 Stored hash:", user.password_hash);
-      console.log("🔐 Generated hash:", passwordHash);
+      console.log("Found user:", user.username);
+      console.log("Stored hash:", user.password_hash);
+      console.log("Generated hash:", passwordHash);
 
-      // Step 3: Verify password
       if (user.password_hash !== passwordHash) {
-        console.log("❌ Password hash mismatch");
+        console.log("Password hash mismatch");
         return { success: false, error: "Invalid username or password" };
       }
 
-      console.log("✅ Password verified!");
+      console.log("Password verified!");
 
-      // Step 4: Get safe information
       const { data: safe, error: safeError } = await supabase
         .from("safes")
         .select("*")
         .eq("id", user.safe_id)
         .single();
 
-      console.log("🔒 Safe lookup result:", safe);
-      console.log("🔒 Safe lookup error:", safeError);
+      console.log("Safe lookup result:", safe);
+      console.log("Safe lookup error:", safeError);
 
       if (safeError || !safe) {
-        console.error("❌ Safe not found:", safeError);
+        console.error("Safe not found:", safeError);
         return { success: false, error: "Safe not accessible" };
       }
 
-      // Step 5: Create user object and store
       const mobileUser = {
         id: user.id,
         username: user.username,
@@ -111,29 +103,26 @@ class MobileAuthService {
         created_at: user.created_at,
       };
 
-      console.log("✅ Login successful for:", mobileUser.username);
+      console.log("Login successful for:", mobileUser.username);
 
-      // Store and set auth state
       this.storeUser(mobileUser);
       authActions.setUser(mobileUser);
 
       return { success: true };
     } catch (error) {
-      console.error("❌ Login exception:", error);
+      console.error("Login exception:", error);
       return { success: false, error: "Login failed. Please try again." };
     }
   }
 
   async logout() {
-    console.log("👋 Logging out...");
+    console.log("Logging out...");
     this.clearStoredUser();
     authActions.logout();
   }
 
-  // Validate stored user and refresh their data
   private async validateAndRefreshUser(storedUser: any): Promise<boolean> {
     try {
-      // Check if user still exists and is active
       const { data: user, error: userError } = await supabase
         .from("mobile_users")
         .select("*")
@@ -145,7 +134,6 @@ class MobileAuthService {
         return false;
       }
 
-      // Get fresh safe data
       const { data: safe, error: safeError } = await supabase
         .from("safes")
         .select("*")
@@ -156,7 +144,6 @@ class MobileAuthService {
         return false;
       }
 
-      // Update stored user with fresh data
       const refreshedUser = {
         ...user,
         safe: {
@@ -174,12 +161,11 @@ class MobileAuthService {
 
       return true;
     } catch (error) {
-      console.error("❌ User validation error:", error);
+      console.error("User validation error:", error);
       return false;
     }
   }
 
-  // Utility methods
   private getStoredUser(): any {
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
@@ -193,7 +179,7 @@ class MobileAuthService {
     try {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(user));
     } catch (error) {
-      console.error("❌ Failed to store user:", error);
+      console.error("Failed to store user:", error);
     }
   }
 
@@ -201,11 +187,10 @@ class MobileAuthService {
     try {
       localStorage.removeItem(this.STORAGE_KEY);
     } catch (error) {
-      console.error("❌ Failed to clear stored user:", error);
+      console.error("Failed to clear stored user:", error);
     }
   }
 
-  // Hash password using SHA-256
   private async hashPassword(password: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(password);

@@ -9,7 +9,7 @@ import type {
   TripPriority,
 } from "../types";
 
-// Enhanced trip booking data interface
+// Trip booking data interface
 export interface TripBookingData {
   safe_id: string;
   client_name: string;
@@ -21,6 +21,12 @@ export interface TripBookingData {
   delivery_address: string;
   delivery_contact_name?: string;
   delivery_contact_phone?: string;
+
+  recipient_name?: string;
+  recipient_email?: string;
+  recipient_phone?: string;
+  recipient_is_client?: boolean; // Toggle: "Same as client"
+
   scheduled_pickup: string;
   scheduled_delivery: string;
   priority?: TripPriority;
@@ -123,10 +129,24 @@ class DataService {
       return { success: false, error: "User not authenticated" };
     }
 
-    // Enable customer tracking if client email is provided (for owner scenario 2)
+    console.log("📋 Creating trip with data:", tripData);
+
+    // Determine recipient
+    const recipientName = tripData.recipient_is_client
+      ? tripData.client_name
+      : tripData.recipient_name;
+
+    const recipientEmail = tripData.recipient_is_client
+      ? tripData.client_email
+      : tripData.recipient_email;
+
+    const recipientPhone = tripData.recipient_is_client
+      ? tripData.client_phone
+      : tripData.recipient_phone;
+
+    // Client always gets tracking link
     const customerTrackingEnabled = !!tripData.client_email;
 
-    // Prepare enhanced trip data - includes new optional fields
     const enhancedTripData = {
       ...tripData,
       created_by: user.id,
@@ -134,7 +154,10 @@ class DataService {
       priority: tripData.priority || "normal",
       requires_signature: tripData.requires_signature || false,
       customer_tracking_enabled: customerTrackingEnabled,
-      // Only include new fields if they're provided (backward compatibility)
+      recipient_name: recipientName,
+      recipient_email: recipientEmail,
+      recipient_phone: recipientPhone,
+      recipient_is_client: tripData.recipient_is_client || false,
       ...(tripData.client_phone && { client_phone: tripData.client_phone }),
       ...(tripData.client_email && { client_email: tripData.client_email }),
       ...(tripData.pickup_contact_name && {
@@ -152,40 +175,19 @@ class DataService {
       ...(tripData.delivery_notes && {
         delivery_notes: tripData.delivery_notes,
       }),
-      // Fix the recurring field mapping
       ...(tripData.recurring?.enabled && {
         recurring_config: tripData.recurring,
       }),
     };
 
-    // Remove the 'recurring' field that doesn't exist in database
     delete enhancedTripData.recurring;
 
     try {
-      // Basic conflict check if we have the data
-      if (
-        enhancedTripData.safe_id &&
-        enhancedTripData.scheduled_pickup &&
-        enhancedTripData.scheduled_delivery
-      ) {
-        const conflicts = await this.checkSchedulingConflicts(
-          enhancedTripData.safe_id,
-          enhancedTripData.scheduled_pickup,
-          enhancedTripData.scheduled_delivery
-        );
-
-        if (conflicts.length > 0) {
-          return {
-            success: false,
-            error: `Security assessment detected conflict with existing secure transport for ${conflicts[0].client_name}`,
-          };
-        }
-      }
-
+      console.log("💾 Inserting trip into database...");
       const { data, error } = await supabase
         .from("trips")
         .insert(enhancedTripData)
-        .select("*, tracking_token") // Make sure to select tracking_token
+        .select("*, tracking_token")
         .single();
 
       if (error) {
@@ -193,18 +195,25 @@ class DataService {
         return { success: false, error: error.message };
       }
 
-      // Send emails
+      console.log("Trip created successfully:", data);
+
+      // REPLACE the email section with this:
       if (enhancedTripData.client_email) {
-        await this.sendTripConfirmationEmail(data);
+        console.log("Sending booking confirmation to CLIENT...");
+
+        // Fire and forget with timeout
+        this.sendClientBookingConfirmation(data).catch((err) => {
+          console.warn("Email failed (non-blocking):", err);
+        });
       }
 
-      // Real-time subscription will update the store automatically
+      // Return immediately, don't wait for email
       return { success: true, trip: data };
     } catch (err) {
-      console.error("Error creating trip:", err);
+      console.error("Exception creating trip:", err);
       return {
         success: false,
-        error: "Failed to create secure transport booking. Please try again.",
+        error: "Failed to create trip booking. Please try again.",
       };
     }
   }
@@ -287,6 +296,13 @@ class DataService {
     excludeTripId?: string
   ): Promise<any[]> {
     try {
+      console.log("Checking conflicts for:", {
+        safeId,
+        pickupTime,
+        deliveryTime,
+        excludeTripId,
+      });
+
       let query = supabase
         .from("trips")
         .select("id, client_name, scheduled_pickup, scheduled_delivery")
@@ -297,79 +313,49 @@ class DataService {
         query = query.neq("id", excludeTripId);
       }
 
+      console.log("📡 Executing Supabase query...");
       const { data, error } = await query;
 
       if (error) {
-        console.error("Error checking conflicts:", error);
+        console.error("Conflict check query error:", error);
+        return [];
+      }
+
+      console.log("Conflict check results:", data);
+
+      if (!data || data.length === 0) {
+        console.log("No existing trips to conflict with");
         return [];
       }
 
       const newPickup = new Date(pickupTime);
       const newDelivery = new Date(deliveryTime);
 
-      const conflicts =
-        data?.filter((trip) => {
-          const existingPickup = new Date(trip.scheduled_pickup);
-          const existingDelivery = new Date(trip.scheduled_delivery);
+      console.log("📅 New trip times:", { newPickup, newDelivery });
 
-          // Check for time overlap
-          return newPickup < existingDelivery && newDelivery > existingPickup;
-        }) || [];
+      const conflicts = data.filter((trip) => {
+        const existingPickup = new Date(trip.scheduled_pickup);
+        const existingDelivery = new Date(trip.scheduled_delivery);
 
+        // Check for time overlap
+        const hasConflict =
+          newPickup < existingDelivery && newDelivery > existingPickup;
+
+        if (hasConflict) {
+          console.log("⚠️ Conflict found with trip:", trip.id);
+        }
+
+        return hasConflict;
+      });
+
+      console.log(
+        `Conflict check complete: ${conflicts.length} conflicts found`
+      );
       return conflicts;
     } catch (error) {
-      console.error("Exception checking conflicts:", error);
+      console.error("Exception in conflict check:", error);
+      // Don't block trip creation on conflict check errors
       return [];
-    }
-  }
-
-  // Send combined trip confirmation + tracking email
-  private async sendTripConfirmationEmail(trip: Trip) {
-    try {
-      if (!trip.client_email) {
-        console.log("No client email provided for trip:", trip.id);
-        return;
-      }
-
-      console.log("Sending confirmation email to:", trip.client_email);
-
-      // Generate tracking URL if customer tracking is enabled
-      const trackingUrl =
-        trip.customer_tracking_enabled && trip.tracking_token
-          ? this.generateTrackingUrl(trip.tracking_token)
-          : null;
-
-      if (trackingUrl) {
-        console.log("Including tracking URL:", trackingUrl);
-      }
-
-      const { data, error } = await supabase.functions.invoke(
-        "send-trip-confirmation", // One function for both
-        {
-          body: {
-            to: trip.client_email,
-            trip_id: trip.id,
-            client_name: trip.client_name,
-            pickup_address: trip.pickup_address,
-            delivery_address: trip.delivery_address,
-            scheduled_pickup: trip.scheduled_pickup,
-            scheduled_delivery: trip.scheduled_delivery,
-            special_instructions: trip.special_instructions,
-            requires_signature: trip.requires_signature || false,
-            priority: trip.priority || "normal",
-            safe_serial: "Unknown",
-            tracking_url: trackingUrl, // NEW: Include tracking URL
-          },
-        }
-      );
-
-      if (error) {
-        console.error("Error sending confirmation email:", error);
-      } else {
-        console.log("Confirmation email sent successfully:", data);
-      }
-    } catch (error) {
-      console.error("Exception sending confirmation email:", error);
     }
   }
 
@@ -378,9 +364,6 @@ class DataService {
     const baseUrl = window.location.origin;
     return `${baseUrl}/track/${trackingToken}`;
   }
-
-  // Get trip by tracking token (public access)
-  // In your dataService.ts file, update this function:
 
   async getTripByTrackingToken(trackingToken: string) {
     try {
@@ -719,11 +702,6 @@ class DataService {
     // Remove spaces, dashes, parentheses for validation
     const cleanPhone = phone.replace(/[\s\-\(\)]/g, "");
 
-    // South African phone number patterns:
-    // Mobile: 071, 072, 073, 074, 076, 078, 079, 081, 082, 083, 084
-    // Landline: 010, 011, 012, 013, 014, 015, 016, 017, 018, 021, 022, 023, 024, 027, 028, 031, 032, 033, 034, 035, 036, 037, 038, 039, 041, 042, 043, 044, 045, 046, 047, 048, 049, 051, 053, 054, 056, 057, 058
-    // International: +27
-
     const southAfricanPatterns = [
       /^0[7-8][0-9]\d{7}$/, // Mobile: 071, 072, etc (10 digits total)
       /^0[1-6]\d{8}$/, // Landline: 010, 011, etc (10 digits total)
@@ -744,6 +722,125 @@ class DataService {
     // This catches any other valid international formats
     const generalPattern = /^[\+]?[\d\s\-\(\)]{7,15}$/;
     return generalPattern.test(cleanPhone);
+  }
+
+  // 1. CLIENT: Booking confirmation
+  private async sendClientBookingConfirmation(trip: Trip) {
+    try {
+      if (!trip.client_email) return;
+
+      console.log(
+        "📧 Sending booking confirmation to client:",
+        trip.client_email
+      );
+
+      const trackingUrl =
+        trip.customer_tracking_enabled && trip.tracking_token
+          ? this.generateTrackingUrl(trip.tracking_token)
+          : null;
+
+      // Add 5 second timeout
+      const emailPromise = supabase.functions.invoke(
+        "send-client-booking-confirmation",
+        {
+          body: {
+            to: trip.client_email,
+            client_name: trip.client_name,
+            trip_id: trip.id,
+            pickup_address: trip.pickup_address,
+            delivery_address: trip.delivery_address,
+            recipient_name: trip.recipient_name,
+            scheduled_pickup: trip.scheduled_pickup,
+            scheduled_delivery: trip.scheduled_delivery,
+            tracking_url: trackingUrl,
+            priority: trip.priority || "normal",
+          },
+        }
+      );
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 5000)
+      );
+
+      await Promise.race([emailPromise, timeoutPromise]).catch(() => {
+        console.warn("Email timeout - continuing anyway");
+      });
+    } catch (error) {
+      console.error("Client email error:", error);
+      // Don't throw - let the trip creation succeed
+    }
+  }
+
+  // 2. RECIPIENT: Driver arriving notification
+  // (Called from mobile app when driver clicks "I've Arrived")
+  async sendRecipientArrivalNotification(trip: Trip) {
+    try {
+      if (!trip.recipient_email) return;
+
+      console.log(
+        "📧 Sending arrival notification to recipient:",
+        trip.recipient_email
+      );
+
+      // OPTIONAL: Include tracking link for recipient
+      // const trackingUrl = this.generateTrackingUrl(trip.tracking_token);
+
+      const emailPromise = supabase.functions.invoke("send-recipient-arrival", {
+        body: {
+          to: trip.recipient_email,
+          recipient_name: trip.recipient_name,
+          delivery_address: trip.delivery_address,
+          client_name: trip.client_name,
+          // tracking_url: trackingUrl, // OPTIONAL
+        },
+      });
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 8000)
+      );
+
+      await Promise.race([emailPromise, timeoutPromise]).catch(() => {
+        console.warn("Email timeout - continuing");
+      });
+    } catch (error) {
+      console.error("Recipient arrival email error:", error);
+    }
+  }
+
+  // 3. CLIENT: Delivery completed confirmation
+  async sendClientDeliveryConfirmation(trip: Trip) {
+    try {
+      if (!trip.client_email) return;
+
+      console.log(
+        "Sending delivery confirmation to client:",
+        trip.client_email
+      );
+
+      const emailPromise = supabase.functions.invoke(
+        "send-delivery-confirmation",
+        {
+          body: {
+            to: trip.client_email,
+            client_name: trip.client_name,
+            trip_id: trip.id,
+            recipient_name: trip.recipient_name,
+            delivery_address: trip.delivery_address,
+            delivered_at: new Date().toISOString(),
+          },
+        }
+      );
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 8000)
+      );
+
+      await Promise.race([emailPromise, timeoutPromise]).catch(() => {
+        console.warn("Email timeout - continuing");
+      });
+    } catch (error) {
+      console.error("Delivery confirmation email error:", error);
+    }
   }
 }
 

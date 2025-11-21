@@ -35,6 +35,13 @@ export function App() {
       dataService.loadUserData();
       dataService.setupRealtimeSubscriptions();
     }
+
+    // Cleanup on unmount
+    return () => {
+      if (authenticated) {
+        dataService.cleanup();
+      }
+    };
   }, [authenticated, user]);
 
   // Handle customer tracking route (public access)

@@ -54,6 +54,10 @@ export interface Trip {
   delivery_address: string;
   delivery_contact_name?: string;
   delivery_contact_phone?: string;
+  recipient_name?: string;
+  recipient_email?: string;
+  recipient_phone?: string;
+  recipient_is_client?: boolean;
   status: TripStatus;
   scheduled_pickup: string;
   scheduled_delivery: string;

@@ -108,16 +108,22 @@ export function CreateTripModal({
   };
 
   const handleSubmit = async () => {
+    console.log("🚀 Submit clicked - Current step:", currentStep);
+    console.log("📋 Form data:", formData);
+
     setError("");
     setLoading(true);
 
     try {
       // Validate all data using the data service
       if (dataService.validateTripData) {
+        console.log("✅ Starting validation...");
         const validation = dataService.validateTripData(
           formData,
           availableSafes
         );
+
+        console.log("📊 Validation result:", validation);
 
         if (!validation.isValid) {
           setError(validation.errors.join(", "));
@@ -128,6 +134,7 @@ export function CreateTripModal({
         setWarnings(validation.warnings);
       }
 
+      console.log("💾 Calling createTrip...");
       let result;
       if (editTrip && dataService.updateTrip) {
         result = await dataService.updateTrip(editTrip.id, formData);
@@ -135,12 +142,17 @@ export function CreateTripModal({
         result = await dataService.createTrip(formData);
       }
 
+      console.log("📥 Result:", result);
+
       if (result.success) {
+        console.log("✅ Trip created successfully!");
         onClose();
       } else {
+        console.error("❌ Trip creation failed:", result.error);
         setError(result.error || "Failed to save trip");
       }
     } catch (err) {
+      console.error("💥 Exception:", err);
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
@@ -238,7 +250,7 @@ export function CreateTripModal({
                   <input
                     type="tel"
                     className="input pl-10"
-                    placeholder="+1 (555) 123-4567"
+                    placeholder="+27 (87) 123 4567"
                     value={formData.client_phone}
                     onInput={(e) =>
                       setFormData((prev) => ({
@@ -315,7 +327,6 @@ export function CreateTripModal({
                 <span>Copy pickup to delivery</span>
               </button>
             </div>
-
             {/* Pickup Address */}
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <h4 className="font-medium text-green-800 mb-3 flex items-center">
@@ -384,7 +395,6 @@ export function CreateTripModal({
                 </div>
               </div>
             </div>
-
             {/* Delivery Address */}
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
               <h4 className="font-medium text-red-800 mb-3 flex items-center">
@@ -455,6 +465,132 @@ export function CreateTripModal({
               </div>
             </div>
 
+            {/* Recipient Information */}
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <h4 className="font-medium text-purple-800 mb-3 flex items-center">
+                <User className="h-4 w-4 mr-2" />
+                Who Will Receive This Delivery?
+              </h4>
+
+              {/* Same as Client Toggle */}
+              <div className="flex items-center space-x-3 mb-4">
+                <input
+                  type="checkbox"
+                  id="recipient_is_client"
+                  checked={formData.recipient_is_client ?? false}
+                  onChange={(e) => {
+                    const isClient = (e.target as HTMLInputElement).checked;
+                    setFormData((prev) => ({
+                      ...prev,
+                      recipient_is_client: isClient,
+                      // Auto-fill if same as client
+                      recipient_name: isClient ? prev.client_name : "",
+                      recipient_email: isClient ? prev.client_email : "",
+                      recipient_phone: isClient ? prev.client_phone : "",
+                    }));
+                  }}
+                />
+                <label
+                  htmlFor="recipient_is_client"
+                  className="text-sm font-medium text-purple-800"
+                >
+                  Client is the recipient (receiving the delivery themselves)
+                </label>
+              </div>
+
+              {/* Recipient Details (only show if NOT same as client) */}
+              {!formData.recipient_is_client && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Recipient Name *
+                    </label>
+                    <input
+                      type="text"
+                      required={!formData.recipient_is_client}
+                      className="input"
+                      placeholder="Person receiving the delivery"
+                      value={formData.recipient_name || ""}
+                      onInput={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          recipient_name: (e.target as HTMLInputElement).value,
+                        }))
+                      }
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Recipient Email *
+                      </label>
+                      <input
+                        type="email"
+                        required={!formData.recipient_is_client}
+                        className="input"
+                        placeholder="For OTP delivery"
+                        value={formData.recipient_email || ""}
+                        onInput={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            recipient_email: (e.target as HTMLInputElement)
+                              .value,
+                          }))
+                        }
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        OTP will be sent here
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Recipient Phone
+                      </label>
+                      <input
+                        type="tel"
+                        className="input"
+                        placeholder="Optional"
+                        value={formData.recipient_phone || ""}
+                        onInput={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            recipient_phone: (e.target as HTMLInputElement)
+                              .value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Info Box */}
+              <div className="mt-3 bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-700">
+                <p className="font-medium mb-1">Email Confirmation:</p>
+                <ul className="space-y-1">
+                  <li>
+                    •{" "}
+                    <strong>
+                      Client ({formData.client_name || "Booking person"})
+                    </strong>
+                    : Gets booking confirmation + tracking link
+                  </li>
+                  <li>
+                    •{" "}
+                    <strong>
+                      Recipient (
+                      {formData.recipient_is_client
+                        ? "Same person"
+                        : formData.recipient_name || "Receiving person"}
+                      )
+                    </strong>
+                    : Gets arrival notification + OTP to unlock
+                  </li>
+                </ul>
+              </div>
+            </div>
             {/* Special Instructions */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -474,7 +610,6 @@ export function CreateTripModal({
                 }
               />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Delivery Notes
@@ -492,7 +627,6 @@ export function CreateTripModal({
                 }
               />
             </div>
-
             {/* Signature Requirement */}
             <div className="flex items-center space-x-3">
               <input
@@ -865,7 +999,7 @@ export function CreateTripModal({
                 {loading ? (
                   <>
                     <LoadingSpinner size="small" className="mr-2" />
-                    {editTrip ? "Updating..." : "Booking..."}
+                    {editTrip ? "Updating..." : "Booking Trip..."}
                   </>
                 ) : (
                   <>{editTrip ? "Update Trip" : "Book Trip"}</>

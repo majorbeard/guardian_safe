@@ -128,9 +128,7 @@ export function LoginScreen() {
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-xs text-gray-500">
-              Guardian Safe Mobile - Driver Access Only
-            </p>
+            <p className="text-xs text-gray-500">Guardian Safe Mobile</p>
           </div>
         </div>
       </div>

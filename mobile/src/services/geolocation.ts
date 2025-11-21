@@ -19,7 +19,7 @@ class GeolocationService {
   }> {
     try {
       console.log(
-        "🌍 Getting location - is Capacitor available?",
+        "Getting location - is Capacitor available?",
         this.isCapacitorAvailable()
       );
 
@@ -101,11 +101,11 @@ class GeolocationService {
         return;
       }
 
-      console.log("🌐 Using browser geolocation...");
+      console.log("Using browser geolocation...");
 
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          console.log("✅ Browser location success:", position.coords);
+          console.log("Browser location success:", position.coords);
           resolve({
             success: true,
             location: {
@@ -117,7 +117,7 @@ class GeolocationService {
           });
         },
         (error) => {
-          console.error("❌ Browser location error:", error);
+          console.error("Browser location error:", error);
 
           let errorMessage = "Failed to get current location";
           switch (error.code) {

@@ -13,6 +13,12 @@ import { dataService } from "../services/data";
 import { trackneticsService } from "../services/tracknetics";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { format } from "date-fns";
+import L from "leaflet";
+import {
+  fixLeafletIcons,
+  createArrowIcon,
+  getOpenStreetMapLayer,
+} from "../utils/leafletHelpers";
 
 interface CustomerTrackingPageProps {
   trackingToken: string;
@@ -73,8 +79,8 @@ export function CustomerTrackingPage({
 
   // Map refs
   const mapRef = useRef<HTMLDivElement>(null);
-  const googleMapRef = useRef<google.maps.Map | null>(null);
-  const safeMarkerRef = useRef<google.maps.Marker | null>(null);
+  const leafletMapRef = useRef<L.Map | null>(null);
+  const safeMarkerRef = useRef<L.Marker | null>(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
   const [mapsError, setMapsError] = useState<string>("");
 
@@ -101,144 +107,53 @@ export function CustomerTrackingPage({
     }
   };
 
-  // Load Google Maps with proper error handling
-  const loadGoogleMaps = (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      // Check if Google Maps is already loaded
-      if (window.google && window.google.maps) {
-        console.log("✅ Google Maps already loaded");
-        setMapsLoaded(true);
-        resolve();
-        return;
-      }
-
-      // Check if script is already being loaded
-      const existingScript = document.querySelector(
-        'script[src*="maps.googleapis.com"]'
-      );
-      if (existingScript) {
-        console.log(
-          "🔄 Google Maps script already exists, waiting for load..."
-        );
-        const checkLoaded = () => {
-          if (window.google && window.google.maps) {
-            console.log("✅ Google Maps loaded via existing script");
-            setMapsLoaded(true);
-            resolve();
-          } else {
-            setTimeout(checkLoaded, 100);
-          }
-        };
-        checkLoaded();
-        return;
-      }
-
-      // Check if API key is available
-      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-      if (!apiKey) {
-        const error = "Google Maps API key not configured";
-        console.error("❌", error);
-        setMapsError(error);
-        reject(new Error(error));
-        return;
-      }
-
-      console.log("📦 Loading Google Maps API...");
-
-      // Create unique callback name to avoid conflicts
-      const callbackName = `initCustomerMaps_${Date.now()}`;
-
-      // Set up global callback
-      (window as any)[callbackName] = () => {
-        console.log("✅ Google Maps API loaded successfully");
-        setMapsLoaded(true);
-        setMapsError("");
-        // Clean up callback
-        delete (window as any)[callbackName];
-        resolve();
-      };
-
-      // Create and load script
-      const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry&callback=${callbackName}`;
-      script.async = true;
-      script.defer = true;
-
-      script.onerror = () => {
-        const error = "Failed to load Google Maps API";
-        console.error("❌", error);
-        setMapsError(error);
-        delete (window as any)[callbackName];
-        reject(new Error(error));
-      };
-
-      document.head.appendChild(script);
-    });
-  };
-
-  // Initialize map with better error handling
-  const initializeMap = async () => {
-    if (!mapRef.current) {
-      console.log("⏳ Map initialization skipped - mapRef not available");
-      return;
-    }
-
-    if (!window.google || !window.google.maps) {
-      console.log("⏳ Map initialization skipped - Google Maps not loaded");
-      return;
-    }
-
-    if (!mapsLoaded) {
-      console.log("⏳ Map initialization skipped - mapsLoaded is false");
-      return;
-    }
-
-    if (googleMapRef.current) {
-      console.log("⏳ Map already initialized");
-      return;
-    }
+  // Initialize map
+  const initializeMap = () => {
+    if (!mapRef.current || leafletMapRef.current || mapsError) return;
 
     console.log("🗺️ Initializing customer tracking map...");
 
     try {
-      const map = new google.maps.Map(mapRef.current, {
-        zoom: 13,
-        center: { lat: -26.2041, lng: 28.0473 }, // Default to Johannesburg
-        mapTypeId: google.maps.MapTypeId.ROADMAP,
-        styles: [
-          {
-            featureType: "poi",
-            elementType: "labels",
-            stylers: [{ visibility: "off" }],
-          },
-        ],
-        // Ensure map controls are visible
-        zoomControl: true,
-        mapTypeControl: false,
-        scaleControl: true,
-        streetViewControl: false,
-        rotateControl: false,
-        fullscreenControl: true,
-      });
+      fixLeafletIcons();
 
-      googleMapRef.current = map;
+      // Wait for DOM to fully render
+      setTimeout(() => {
+        if (!mapRef.current) return;
 
-      // Wait for map to be idle before proceeding
-      google.maps.event.addListenerOnce(map, "idle", () => {
-        console.log("✅ Customer tracking map initialized and ready");
+        const map = L.map(mapRef.current, {
+          center: [-26.2041, 28.0473],
+          zoom: 13,
+          zoomControl: true,
+          scrollWheelZoom: true,
+        });
 
-        // If we already have location data, update marker immediately
+        getOpenStreetMapLayer().addTo(map);
+
+        leafletMapRef.current = map;
+
+        // Force size recalculation
+        setTimeout(() => {
+          if (leafletMapRef.current) {
+            leafletMapRef.current.invalidateSize();
+            console.log("✅ Map size invalidated");
+          }
+        }, 250);
+
+        setMapsLoaded(true);
+        console.log("Customer tracking map initialized");
+
+        // Update marker if location exists
         if (safeLocation.location) {
-          console.log("🔄 Map ready, updating marker with existing location");
-          updateSafeMarker();
+          setTimeout(() => updateSafeMarker(), 500);
         }
-      });
+      }, 100);
     } catch (error) {
-      console.error("❌ Error initializing customer map:", error);
+      console.error("Error initializing customer map:", error);
       setMapsError("Failed to initialize map");
     }
   };
 
+  // Update safe location
   // Update safe location
   const updateSafeLocation = async () => {
     if (!trip?.safes) return;
@@ -258,11 +173,25 @@ export function CustomerTrackingPage({
 
     try {
       console.log(
-        `📍 Getting live location for customer tracking (device: ${deviceId})`
+        `Getting live location for customer tracking (device: ${deviceId})`
       );
 
-      const result = await trackneticsService.getLocationByDeviceId(deviceId);
+      // Type the result properly
+      const locationPromise =
+        trackneticsService.getLocationByDeviceId(deviceId);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Location timeout")), 10000)
+      );
 
+      const result = await Promise.race([
+        locationPromise,
+        timeoutPromise,
+      ]).catch((err): { success: false; error: string } => {
+        console.warn("Location fetch timeout:", err);
+        return { success: false, error: "Location request timed out" };
+      });
+
+      // Now TypeScript knows result has the correct type
       if (result.success && result.location) {
         const newLocation: SafeLocationData = {
           location: result.location,
@@ -270,7 +199,7 @@ export function CustomerTrackingPage({
           lastUpdate: new Date(),
         };
         setSafeLocation(newLocation);
-        console.log(`✅ Customer live location updated:`, result.location);
+        console.log(`Customer live location updated:`, result.location);
       } else {
         setSafeLocation({
           status: "offline",
@@ -291,121 +220,106 @@ export function CustomerTrackingPage({
 
   // Update safe marker on map
   const updateSafeMarker = () => {
-    if (!googleMapRef.current) {
-      console.log("⏳ Skipping marker update - googleMapRef not available");
+    if (!leafletMapRef.current) {
+      console.log("Skipping marker update - map not available");
       return;
     }
 
     if (!safeLocation.location) {
-      console.log("⏳ Skipping marker update - no location data");
+      console.log("Skipping marker update - no location data");
       return;
     }
 
-    const position = {
-      lat: safeLocation.location.lat,
-      lng: safeLocation.location.lng,
-    };
+    const position: L.LatLngExpression = [
+      safeLocation.location.lat,
+      safeLocation.location.lng,
+    ];
 
-    console.log("📍 Updating safe marker at:", position);
+    console.log("Updating safe marker at:", position);
 
     try {
       if (!safeMarkerRef.current) {
         // Create safe marker
-        safeMarkerRef.current = new google.maps.Marker({
-          position,
-          map: googleMapRef.current,
-          title: `Your Secure Transport`,
-          icon: {
-            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-            fillColor: "#8B5CF6",
-            fillOpacity: 1,
-            strokeColor: "#FFFFFF",
-            strokeWeight: 2,
-            scale: 12,
-          },
-        });
+        const icon =
+          safeLocation.location.speed && safeLocation.location.speed > 5
+            ? createArrowIcon("#8B5CF6", 0)
+            : L.divIcon({
+                className: "custom-transport-marker",
+                html: `<div style="
+                background-color: #8B5CF6;
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                border: 4px solid white;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+              "></div>`,
+                iconSize: [28, 28],
+                iconAnchor: [14, 14],
+              });
+
+        safeMarkerRef.current = L.marker(position, { icon }).addTo(
+          leafletMapRef.current
+        );
 
         // Safe info window
-        const safeInfoWindow = new google.maps.InfoWindow({
-          content: `
-            <div style="padding: 8px;">
-              <h3 style="margin: 0 0 8px 0; color: #8B5CF6;">🚐 Your Secure Transport</h3>
-              <div style="font-size: 12px;">
-                <p style="margin: 2px 0;"><strong>Status:</strong> ${
-                  safeLocation.status
-                }</p>
-                <p style="margin: 2px 0;"><strong>Location:</strong> ${position.lat.toFixed(
-                  6
-                )}, ${position.lng.toFixed(6)}</p>
-                <p style="margin: 2px 0;"><strong>Accuracy:</strong> ±${
-                  safeLocation.location.accuracy
-                }m</p>
-                ${
-                  safeLocation.location.speed
-                    ? `<p style="margin: 2px 0;"><strong>Speed:</strong> ${safeLocation.location.speed} km/h</p>`
-                    : ""
-                }
-                <p style="margin: 2px 0;"><strong>Last Update:</strong> Just now</p>
-              </div>
+        const popupContent = `
+          <div style="padding: 8px;">
+            <h3 style="margin: 0 0 8px 0; color: #8B5CF6;">🚚 Your Secure Transport</h3>
+            <div style="font-size: 12px;">
+              <p style="margin: 2px 0;"><strong>Status:</strong> ${
+                safeLocation.status
+              }</p>
+              <p style="margin: 2px 0;"><strong>Location:</strong> ${position[0].toFixed(
+                6
+              )}, ${position[1].toFixed(6)}</p>
+              <p style="margin: 2px 0;"><strong>Accuracy:</strong> ±${
+                safeLocation.location.accuracy
+              }m</p>
+              ${
+                safeLocation.location.speed
+                  ? `<p style="margin: 2px 0;"><strong>Speed:</strong> ${safeLocation.location.speed} km/h</p>`
+                  : ""
+              }
+              <p style="margin: 2px 0;"><strong>Last Update:</strong> Just now</p>
             </div>
-          `,
-        });
+          </div>
+        `;
 
-        safeMarkerRef.current.addListener("click", () => {
-          safeInfoWindow.open(googleMapRef.current, safeMarkerRef.current);
-        });
+        safeMarkerRef.current.bindPopup(popupContent);
 
         // Center map on safe location
-        googleMapRef.current.setCenter(position);
-        // Adjust zoom to show marker clearly
-        googleMapRef.current.setZoom(15);
-        console.log("✅ Safe marker created and map centered");
+        leafletMapRef.current.setView(position, 15);
+        console.log("Safe marker created and map centered");
       } else {
         // Update existing marker position
-        safeMarkerRef.current.setPosition(position);
-        // Re-center map on updated position
-        googleMapRef.current.setCenter(position);
-        console.log("✅ Safe marker position updated");
+        safeMarkerRef.current.setLatLng(position);
+        leafletMapRef.current.setView(
+          position,
+          leafletMapRef.current.getZoom()
+        );
+        console.log("Safe marker position updated");
       }
     } catch (error) {
-      console.error("❌ Error updating safe marker:", error);
+      console.error("Error updating safe marker:", error);
     }
   };
 
   // Initialize everything
   useEffect(() => {
     loadTripData();
-    loadGoogleMaps()
-      .then(() => {
-        // Small delay to ensure DOM is ready
-        setTimeout(() => {
-          initializeMap();
-        }, 100);
-      })
-      .catch((error) => {
-        console.error("Failed to load Google Maps:", error);
-        setMapsError(error.message);
-      });
-  }, [trackingToken]);
+    initializeMap();
 
-  // Initialize map when mapsLoaded changes
-  useEffect(() => {
-    if (mapsLoaded && !mapsError && mapRef.current && !googleMapRef.current) {
-      console.log("🔄 Initializing map after mapsLoaded state change");
-      setTimeout(() => {
-        initializeMap();
-      }, 100);
-    }
-  }, [mapsLoaded, mapsError]);
+    return () => {
+      if (leafletMapRef.current) {
+        leafletMapRef.current.remove();
+        leafletMapRef.current = null;
+      }
+    };
+  }, [trackingToken]);
 
   // Update safe marker when location changes
   useEffect(() => {
-    if (
-      mapsLoaded &&
-      safeLocation.location &&
-      !mapsError &&
-      googleMapRef.current
-    ) {
+    if (mapsLoaded && safeLocation.location && !mapsError) {
       updateSafeMarker();
     }
   }, [safeLocation, mapsLoaded, mapsError]);
@@ -749,7 +663,7 @@ export function CustomerTrackingPage({
                 {trip.requires_signature && (
                   <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-3 mt-3">
                     <p className="text-yellow-300 text-sm">
-                      ⚠️ Signature required upon delivery
+                      Signature required upon delivery
                     </p>
                   </div>
                 )}
@@ -786,17 +700,9 @@ export function CustomerTrackingPage({
                 </div>
               </div>
 
-              <div className="h-96 relative">
-                {/* Loading State */}
-                {!mapsLoaded && !mapsError && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-                    <div className="text-center">
-                      <LoadingSpinner size="large" />
-                      <p className="mt-4 text-gray-300">Loading map...</p>
-                    </div>
-                  </div>
-                )}
-
+              <div
+                style={{ height: "500px", width: "100%", position: "relative" }}
+              >
                 {/* Maps Error State */}
                 {mapsError && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
@@ -810,9 +716,7 @@ export function CustomerTrackingPage({
                         onClick={() => {
                           setMapsError("");
                           setMapsLoaded(false);
-                          loadGoogleMaps()
-                            .then(initializeMap)
-                            .catch(console.error);
+                          initializeMap();
                         }}
                         className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors"
                       >
@@ -825,10 +729,10 @@ export function CustomerTrackingPage({
                 {/* Map Container */}
                 <div
                   ref={mapRef}
-                  className="w-full h-full"
                   style={{
-                    display: mapsLoaded && !mapsError ? "block" : "none",
-                    minHeight: "384px",
+                    width: "100%",
+                    height: "100%",
+                    display: mapsError ? "none" : "block",
                   }}
                 />
 
@@ -853,7 +757,7 @@ export function CustomerTrackingPage({
                 {mapsLoaded && !mapsError && safeLocation.location && (
                   <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm rounded-lg p-3 border border-white/20">
                     <div className="flex items-center space-x-2 text-sm">
-                      <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-b-[10px] border-l-transparent border-r-transparent border-b-purple-400"></div>
+                      <div className="w-4 h-4 rounded-full bg-purple-400"></div>
                       <span className="text-white">Your Transport</span>
                     </div>
                   </div>
@@ -871,7 +775,7 @@ export function CustomerTrackingPage({
           <p>Guardian Safe Security Services - Premium Secure Transport</p>
           {autoRefresh && trip.status === "in_transit" && (
             <p className="text-xs mt-2 text-gray-500">
-              🔄 Auto-updating every 30 seconds
+              Auto-updating every 30 seconds
             </p>
           )}
         </div>

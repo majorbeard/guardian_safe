@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { MapPin, Clock, Send, AlertTriangle } from "lucide-preact";
+import { MapPin, Send, AlertTriangle } from "lucide-preact";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 interface OTPGeneratorProps {
@@ -9,7 +9,7 @@ interface OTPGeneratorProps {
 }
 
 export function OTPGenerator({
-  tripId,
+  // tripId,
   onOTPRequested,
   onError,
 }: OTPGeneratorProps) {
@@ -24,12 +24,12 @@ export function OTPGenerator({
 
     try {
       // Get current location (placeholder for now)
-      const location = {
+      /*       const location = {
         latitude: -33.9249,
         longitude: 18.4241,
         accuracy: 10,
       };
-
+ */
       setLocationStatus("valid");
 
       // Simulate OTP request

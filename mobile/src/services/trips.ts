@@ -22,16 +22,14 @@ interface TripData {
 class TripsService {
   private subscription: any = null;
 
-  // Load trips for current user's safe
-  // Load trips for current user's safe
   async loadTrips() {
     const user = currentUser.value;
     if (!user?.safe_id) {
-      console.log("❌ No user or safe_id found:", user);
+      console.log("No user or safe_id found:", user);
       return;
     }
 
-    console.log("🔍 Loading trips for safe_id:", user.safe_id);
+    console.log("Loading trips for safe_id:", user.safe_id);
     tripsActions.setLoading(true);
 
     try {
@@ -42,8 +40,8 @@ class TripsService {
         .in("status", ["pending", "in_transit"])
         .order("scheduled_pickup", { ascending: true });
 
-      console.log("📋 Trips query result:", data);
-      console.log("📋 Trips query error:", error);
+      console.log("Trips query result:", data);
+      console.log("Trips query error:", error);
 
       if (error) {
         console.error("Failed to load trips:", error);
@@ -51,7 +49,7 @@ class TripsService {
         return;
       }
 
-      console.log(`✅ Found ${data?.length || 0} trips`);
+      console.log(`Found ${data?.length || 0} trips`);
       tripsActions.setTrips(data || []);
     } catch (err) {
       console.error("Exception loading trips:", err);
@@ -61,7 +59,6 @@ class TripsService {
     }
   }
 
-  // Start trip (change status to in_transit)
   async startTrip(tripId: string) {
     try {
       const { data, error } = await supabase
@@ -79,7 +76,6 @@ class TripsService {
         return { success: false, error: error.message };
       }
 
-      // Update local state
       tripsActions.updateTrip(tripId, data);
       return { success: true, trip: data };
     } catch (err) {
@@ -88,9 +84,8 @@ class TripsService {
     }
   }
 
-  // Complete trip (change status to delivered)
   async completeTrip(tripId: string) {
-    console.log("🎯 Attempting to complete trip:", tripId);
+    console.log("Attempting to complete trip:", tripId);
 
     try {
       const { data, error } = await supabase
@@ -101,29 +96,72 @@ class TripsService {
           updated_at: new Date().toISOString(),
         })
         .eq("id", tripId)
-        .select()
+        .select("*")
         .single();
 
-      console.log("📦 Complete trip result:", data);
-      console.log("📦 Complete trip error:", error);
+      console.log("Complete trip result:", data);
+      console.log("Complete trip error:", error);
 
       if (error) {
-        console.error("❌ Failed to complete trip:", error);
+        console.error("Failed to complete trip:", error);
         return { success: false, error: error.message };
       }
 
-      console.log("✅ Trip completed successfully!");
+      console.log("Trip completed successfully!");
 
-      // Update local state
+      // Send delivery confirmation to CLIENT
+      if (data.client_email) {
+        console.log(
+          "Sending delivery confirmation to client:",
+          data.client_email
+        );
+
+        try {
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+          const response = await fetch(
+            `${supabaseUrl}/functions/v1/send-delivery-confirmation`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${anonKey}`,
+                apikey: anonKey,
+              },
+              body: JSON.stringify({
+                to: data.client_email,
+                client_name: data.client_name,
+                recipient_name: data.recipient_name || data.client_name,
+                trip_id: data.id,
+                delivery_address: data.delivery_address,
+                delivered_at: data.actual_delivery_time,
+              }),
+            }
+          );
+
+          if (response.ok) {
+            console.log("Delivery confirmation sent to client");
+          } else {
+            console.warn(
+              "Delivery confirmation failed:",
+              await response.text()
+            );
+          }
+        } catch (emailError) {
+          console.warn("Could not send delivery confirmation:", emailError);
+          // Don't block on email failure
+        }
+      }
+
       tripsActions.updateTrip(tripId, data);
       return { success: true, trip: data };
     } catch (err) {
-      console.error("❌ Exception completing trip:", err);
+      console.error("Exception completing trip:", err);
       return { success: false, error: "Failed to complete trip" };
     }
   }
 
-  // Setup real-time subscriptions for trip updates
   setupRealtimeSubscriptions() {
     const user = currentUser.value;
     if (!user?.safe_id) return;
@@ -145,7 +183,6 @@ class TripsService {
 
           if (payload.eventType === "INSERT") {
             tripsActions.addTrip(payload.new as TripData);
-            // Show notification for new trip
             this.showTripNotification(payload.new as TripData);
           } else if (payload.eventType === "UPDATE") {
             tripsActions.updateTrip(
@@ -158,9 +195,7 @@ class TripsService {
       .subscribe();
   }
 
-  // Show notification when new trip is assigned
   private showTripNotification(trip: TripData) {
-    // Simple browser notification for now
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification("New Trip Assigned!", {
         body: `Delivery for ${trip.client_name} - ${trip.pickup_address}`,
@@ -168,11 +203,9 @@ class TripsService {
       });
     }
 
-    // You can also trigger a modal or sound here
-    console.log("🚨 NEW TRIP ASSIGNED:", trip);
+    console.log("NEW TRIP ASSIGNED:", trip);
   }
 
-  // Request notification permission
   async requestNotificationPermission() {
     if ("Notification" in window) {
       const permission = await Notification.requestPermission();

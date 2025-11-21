@@ -1,12 +1,7 @@
 import { useEffect } from "preact/hooks";
-import { Shield } from "lucide-preact";
+// import { Shield } from "lucide-preact";
 import { mobileAuthService } from "./services/auth";
-import {
-  isAuthenticated,
-  isLoading,
-  currentUser,
-  currentSafe,
-} from "./store/auth";
+import { isAuthenticated, isLoading } from "./store/auth";
 import { LoginScreen } from "./screens/LoginScreen";
 import { DashboardScreen } from "./screens/DashboardScreen";
 import { LoadingSpinner } from "./components/LoadingSpinner";
@@ -14,8 +9,6 @@ import { LoadingSpinner } from "./components/LoadingSpinner";
 export function App() {
   const authenticated = isAuthenticated.value;
   const loading = isLoading.value;
-  const user = currentUser.value;
-  const safe = currentSafe.value;
 
   useEffect(() => {
     mobileAuthService.initialize();
@@ -36,7 +29,7 @@ export function App() {
     return <LoginScreen />;
   }
 
-  // Show main dashboard - it handles everything now
+  // Show main dashboard
   return <DashboardScreen />;
 }
 

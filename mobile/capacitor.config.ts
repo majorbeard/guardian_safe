@@ -7,8 +7,8 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: "https",
     // Add this for development
-    url: "http://localhost:5174", // Updated port
-    cleartext: true,
+    // url: "http://localhost:5174", // Updated port
+    // cleartext: true,
   },
   plugins: {
     BluetoothLe: {

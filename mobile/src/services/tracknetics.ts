@@ -83,30 +83,30 @@ class TrackneticsService {
   // Login and get authentication key
   async login(): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log("🔐 Logging into Tracknetics via proxy...");
+      console.log("Logging into Tracknetics via proxy...");
 
       const data: LoginResponse = await this.apiCall("Login", {
         name: this.credentials.username,
         pass: this.credentials.password,
       });
 
-      console.log("🔐 Tracknetics login response:", data);
+      console.log("Tracknetics login response:", data);
 
       if (data.state === "0" && data.userInfo) {
         this.currentSession = {
           userID: data.userInfo.userID,
           key: data.userInfo.key,
         };
-        console.log("🔑 Session key:", data.userInfo.key);
-        console.log("✅ Tracknetics login successful");
+        console.log("Session key:", data.userInfo.key);
+        console.log("Tracknetics login successful");
         return { success: true };
       } else {
-        console.error("❌ Tracknetics login failed:", data);
+        console.error("Tracknetics login failed:", data);
         const errorMessage = this.getErrorMessage(data.state);
         return { success: false, error: `Login failed: ${errorMessage}` };
       }
     } catch (error: any) {
-      console.error("❌ Tracknetics login error:", error);
+      console.error("Tracknetics login error:", error);
       return {
         success: false,
         error: error.message || "Network error during login",
@@ -138,7 +138,7 @@ class TrackneticsService {
     }
 
     try {
-      console.log("📱 Getting device list...");
+      console.log("Getting device list...");
 
       const data = await this.apiCall("GetDeviceList", {
         ID: this.currentSession.userID,
@@ -147,7 +147,7 @@ class TrackneticsService {
         Key: this.currentSession.key,
       });
 
-      console.log("📱 Device list response:", data);
+      console.log("Device list response:", data);
 
       if (data.state === "0") {
         return { success: true, devices: data.arr || [] };
@@ -159,7 +159,7 @@ class TrackneticsService {
         };
       }
     } catch (error: any) {
-      console.error("❌ Error getting device list:", error);
+      console.error("Error getting device list:", error);
       return {
         success: false,
         error: error.message || "Network error getting device list",
@@ -176,7 +176,7 @@ class TrackneticsService {
     }
 
     try {
-      console.log("📍 Getting location for device:", deviceId);
+      console.log("Getting location for device:", deviceId);
 
       const data: LocationData = await this.apiCall("GetTracking", {
         DeviceID: deviceId,
@@ -186,7 +186,7 @@ class TrackneticsService {
         Key: this.currentSession.key,
       });
 
-      console.log("📍 Location response:", data);
+      console.log("Location response:", data);
 
       if (data.state === "0") {
         return { success: true, location: data };
@@ -200,7 +200,7 @@ class TrackneticsService {
         };
       }
     } catch (error: any) {
-      console.error("❌ Error getting device location:", error);
+      console.error("Error getting device location:", error);
       return {
         success: false,
         error: error.message || "Network error getting location",
@@ -209,9 +209,7 @@ class TrackneticsService {
   }
 
   // Get location by device ID (simplified method for direct calls)
-  async getLocationByDeviceId(
-    deviceId: string
-  ): Promise<{
+  async getLocationByDeviceId(deviceId: string): Promise<{
     success: boolean;
     location?: {
       lat: number;
@@ -221,7 +219,7 @@ class TrackneticsService {
     };
     error?: string;
   }> {
-    console.log("🎯 Getting location for device ID:", deviceId);
+    console.log("Getting location for device ID:", deviceId);
 
     const locationResult = await this.getDeviceLocation(deviceId);
 
@@ -242,7 +240,7 @@ class TrackneticsService {
           : Date.now(),
       };
 
-      console.log("🎯 Converted location:", standardLocation);
+      console.log("Converted location:", standardLocation);
       return {
         success: true,
         location: standardLocation,
@@ -279,7 +277,7 @@ class TrackneticsService {
         Key: this.currentSession.key,
       });
 
-      console.log("🚧 Geofence response:", data);
+      console.log("Geofence response:", data);
 
       if (data.state === "0") {
         return { success: true, geofenceId: data.geofenceID };
@@ -291,7 +289,7 @@ class TrackneticsService {
         };
       }
     } catch (error: any) {
-      console.error("❌ Error creating geofence:", error);
+      console.error("Error creating geofence:", error);
       return {
         success: false,
         error: error.message || "Network error creating geofence",
@@ -308,7 +306,7 @@ class TrackneticsService {
     }
 
     try {
-      console.log("📋 Getting device details for:", deviceId);
+      console.log("Getting device details for:", deviceId);
 
       const data = await this.apiCall("GetDeviceDetail", {
         DeviceID: deviceId,
@@ -328,7 +326,7 @@ class TrackneticsService {
         };
       }
     } catch (error: any) {
-      console.error("❌ Error getting device details:", error);
+      console.error("Error getting device details:", error);
       return {
         success: false,
         error: error.message || "Network error getting device details",
@@ -367,7 +365,7 @@ class TrackneticsService {
         Key: this.currentSession.key,
       });
 
-      console.log("📊 Device history response:", data);
+      console.log("Device history response:", data);
 
       if (data.state === "0") {
         return { success: true, history: data };
@@ -379,7 +377,7 @@ class TrackneticsService {
         };
       }
     } catch (error: any) {
-      console.error("❌ Error getting device history:", error);
+      console.error("Error getting device history:", error);
       return {
         success: false,
         error: error.message || "Network error getting device history",

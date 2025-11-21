@@ -12,7 +12,7 @@ import { tripsService } from "../services/trips";
 import { currentUser, currentSafe } from "../store/auth";
 import {
   currentTrips,
-  activeTrip,
+  // activeTrip,
   pendingTrips,
   inTransitTrip,
   isLoading,
@@ -21,12 +21,14 @@ import {
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { TripCard } from "../components/TripCard";
 import { DeliveryScreen } from "./DeliveryScreen";
+import { RefreshCw, Unlock } from "lucide-preact";
+import { bluetoothService } from "../services/bluetooth";
 
 export function DashboardScreen() {
   const user = currentUser.value;
   const safe = currentSafe.value;
   const trips = currentTrips.value;
-  const active = activeTrip.value;
+  // const active = activeTrip.value;
   const pending = pendingTrips.value;
   const inTransit = inTransitTrip.value;
   const loading = isLoading.value;
@@ -34,7 +36,93 @@ export function DashboardScreen() {
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<any>(null);
-  const [showSOS, setShowSOS] = useState(false);
+  const [, setShowSOS] = useState(false);
+
+  const [piStatus, setPiStatus] = useState<{
+    batteryPercent: number;
+    safeStatus: string;
+    voltage: number;
+    lockOpen: boolean;
+  } | null>(null);
+
+  const [btConnected, setBtConnected] = useState(false);
+
+  // Effect to initialize Bluetooth and poll status:
+  useEffect(() => {
+    const initBluetooth = async () => {
+      await bluetoothService.initialize();
+
+      // Try to auto-connect if already paired
+      const scanResult = await bluetoothService.scanForPi();
+      if (scanResult.success) {
+        const connectResult = await bluetoothService.connectToPi();
+        if (connectResult.success) {
+          setBtConnected(true);
+
+          // Get initial status
+          const statusResult = await bluetoothService.readPiStatus();
+          if (statusResult.success && statusResult.status) {
+            setPiStatus({
+              batteryPercent: statusResult.status.batteryPercent,
+              safeStatus: statusResult.status.safeStatus,
+              voltage: statusResult.status.voltage,
+              lockOpen: statusResult.status.lockOpen,
+            });
+          }
+        }
+      }
+    };
+
+    initBluetooth();
+
+    return () => bluetoothService.disconnect();
+  }, []);
+
+  // Reffect to poll status every 30 seconds when connected:
+  useEffect(() => {
+    if (!btConnected) return;
+
+    const pollStatus = async () => {
+      const result = await bluetoothService.readPiStatus();
+      if (result.success && result.status) {
+        setPiStatus({
+          batteryPercent: result.status.batteryPercent,
+          safeStatus: result.status.safeStatus,
+          voltage: result.status.voltage,
+          lockOpen: result.status.lockOpen,
+        });
+      }
+    };
+
+    const interval = setInterval(pollStatus, 30000); // Every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [btConnected]);
+
+  // Effect to poll Pi status every 30 seconds
+  useEffect(() => {
+    const pollPiStatus = async () => {
+      const result = await bluetoothService.readPiStatus();
+      if (result.success && result.status) {
+        setPiStatus({
+          batteryPercent: result.status.batteryPercent,
+          safeStatus: result.status.safeStatus,
+          voltage: result.status.voltage,
+          lockOpen: result.status.lockOpen,
+        });
+
+        // TODO:
+        // Update safe in store
+        // Dispatch to update the safe state
+      }
+    };
+
+    // Poll immediately and then every 30 seconds
+    pollPiStatus();
+    const interval = setInterval(pollPiStatus, 30000);
+
+    return () => clearInterval(interval);
+  }, [btConnected]);
 
   useEffect(() => {
     // Initialize trips service
@@ -72,7 +160,7 @@ export function DashboardScreen() {
     setShowSOS(true);
     // In production, this would trigger emergency protocols
     alert(
-      "🚨 SOS ACTIVATED!\n\nEmergency services have been notified.\nStay safe and follow emergency procedures."
+      "SOS ACTIVATED!\n\nEmergency services have been notified.\nStay safe and follow emergency procedures."
     );
   };
 
@@ -142,51 +230,131 @@ export function DashboardScreen() {
       </div>
 
       {/* Safe Status */}
-      <div
-        className={`px-4 py-3 border-b ${
-          safe?.status === "active" ? "bg-green-50" : "bg-yellow-50"
-        }`}
-      >
+      <div className="px-4 py-3 border-b bg-gradient-to-r from-gray-50 to-gray-100">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 flex-wrap gap-y-2">
+            {/* Bluetooth Connection Status */}
+            <div className="flex items-center space-x-2">
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  btConnected ? "bg-blue-500 animate-pulse" : "bg-gray-400"
+                }`}
+              ></div>
+              <span className="text-xs text-gray-600">
+                {btConnected ? "Connected" : "Disconnected"}
+              </span>
+            </div>
+
+            {/* Safe Status */}
             <div className="text-sm">
               <span className="font-medium text-gray-900">Status: </span>
               <span
                 className={`font-semibold ${
-                  safe?.status === "active"
+                  (piStatus?.safeStatus || safe?.status) === "active"
                     ? "text-green-700"
-                    : "text-yellow-700"
+                    : (piStatus?.safeStatus || safe?.status) === "maintenance"
+                    ? "text-yellow-700"
+                    : (piStatus?.safeStatus || safe?.status) === "inactive"
+                    ? "text-gray-700"
+                    : "text-red-700"
                 }`}
               >
-                {safe?.status?.toUpperCase()}
+                {(piStatus?.safeStatus || safe?.status)?.toUpperCase()}
               </span>
             </div>
+
+            {/* Battery Level */}
             <div className="text-sm">
               <span className="font-medium text-gray-900">Battery: </span>
               <span
                 className={`font-semibold ${
-                  (safe?.battery_level || 0) > 50
+                  (piStatus?.batteryPercent ?? safe?.battery_level ?? 0) > 50
                     ? "text-green-700"
-                    : (safe?.battery_level || 0) > 20
+                    : (piStatus?.batteryPercent ?? safe?.battery_level ?? 0) >
+                      20
                     ? "text-yellow-700"
                     : "text-red-700"
                 }`}
               >
-                {safe?.battery_level}%
+                {piStatus?.batteryPercent ?? safe?.battery_level ?? 0}%
               </span>
+              {piStatus?.voltage && (
+                <span className="text-gray-500 text-xs ml-1">
+                  ({piStatus.voltage.toFixed(2)}V)
+                </span>
+              )}
             </div>
+
+            {/* Lock Status */}
             <div className="text-sm">
               <span className="font-medium text-gray-900">Lock: </span>
               <span
                 className={`font-semibold ${
-                  safe?.is_locked ? "text-green-700" : "text-red-700"
+                  piStatus?.lockOpen ?? safe?.is_locked === false
+                    ? "text-red-700"
+                    : "text-green-700"
                 }`}
               >
-                {safe?.is_locked ? "SECURED" : "OPEN"}
+                {piStatus?.lockOpen ?? safe?.is_locked === false
+                  ? "OPEN"
+                  : "SECURED"}
               </span>
             </div>
           </div>
+
+          {/* Refresh Button */}
+          {btConnected && (
+            <button
+              onClick={async () => {
+                const result = await bluetoothService.readPiStatus();
+                if (result.success && result.status) {
+                  setPiStatus({
+                    batteryPercent: result.status.batteryPercent,
+                    safeStatus: result.status.safeStatus,
+                    voltage: result.status.voltage,
+                    lockOpen: result.status.lockOpen,
+                  });
+                }
+              }}
+              className="text-xs text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+            >
+              <RefreshCw className="h-3 w-3" />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+          )}
         </div>
+
+        {/* Low Battery Warning */}
+        {(piStatus?.batteryPercent ?? safe?.battery_level ?? 100) < 20 && (
+          <div className="mt-2 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center space-x-2">
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+            <span className="text-sm text-red-700 font-medium">
+              ⚠️ Low Battery Warning -{" "}
+              {piStatus?.batteryPercent ?? safe?.battery_level}% remaining
+              {piStatus?.voltage && ` (${piStatus.voltage.toFixed(2)}V)`}
+            </span>
+          </div>
+        )}
+
+        {/* Lock Open Warning */}
+        {piStatus?.lockOpen && (
+          <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded px-3 py-2 flex items-center space-x-2">
+            <Unlock className="h-4 w-4 text-yellow-600" />
+            <span className="text-sm text-yellow-700 font-medium">
+              ⚠️ Safe is currently UNLOCKED
+            </span>
+          </div>
+        )}
+
+        {/* Not Connected to Pi Warning */}
+        {!btConnected && (
+          <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2 flex items-center space-x-2">
+            <AlertTriangle className="h-4 w-4 text-gray-600" />
+            <span className="text-sm text-gray-700">
+              Not connected to safe. Real-time status unavailable.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -256,8 +424,8 @@ export function DashboardScreen() {
                 </p>
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm text-blue-700">
-                    📱 You'll receive a notification when a new trip is assigned
-                    to your safe.
+                    You'll receive a notification when a new trip is assigned to
+                    your safe.
                   </p>
                 </div>
               </div>
@@ -300,7 +468,7 @@ export function DashboardScreen() {
                   • Always verify recipient identity before unlocking safe
                 </li>
                 <li>• Use SOS button for any emergency situations</li>
-                <li>• Contact dispatch: +27 (00) 000 0000</li>
+                <li>• Contact dispatch: +27 (61) 140 2806</li>
               </ul>
             </div>
           </>

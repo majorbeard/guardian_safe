@@ -8,13 +8,12 @@ import { SafesList } from "./SafesList";
 import { TripsList } from "./TripsList";
 import { StatsCards } from "./StatsCards";
 import { safes, trips } from "../store/data";
-import { trackneticsService } from "../services/tracknetics";
 
 export function OwnerDashboard() {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showCreateSafe, setShowCreateSafe] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "overview" | "users" | "safes" | "trips"
+    "overview" | "users" | "safes" | "trips" | "security"
   >("overview");
 
   const safesList = safes.value;
@@ -46,22 +45,6 @@ export function OwnerDashboard() {
     </div>
   );
 
-  // Tracknetics
-  const testTracknetics = async () => {
-    console.log("Testing Tracknetics integration...");
-
-    const loginResult = await trackneticsService.login();
-    console.log("Login result:", loginResult);
-
-    if (loginResult.success) {
-      // Test direct device location call
-      const locationResult = await trackneticsService.getLocationByDeviceId(
-        "197273"
-      );
-      console.log("Direct location result:", locationResult);
-    }
-  };
-
   const tabs = [
     { id: "overview", label: "Overview", icon: Package },
     { id: "users", label: "Users", icon: Users },
@@ -72,7 +55,6 @@ export function OwnerDashboard() {
   return (
     <>
       <DashboardLayout title="Guardian Safe" actions={actions}>
-        {/* Tab Navigation */}
         <div className="bg-white rounded-lg shadow mb-6">
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8 px-6">
@@ -97,7 +79,6 @@ export function OwnerDashboard() {
           </div>
         </div>
 
-        {/* Tab Content */}
         {activeTab === "overview" && (
           <div className="space-y-6">
             <StatsCards stats={stats} />
@@ -125,17 +106,12 @@ export function OwnerDashboard() {
         {activeTab === "trips" && <TripsList />}
       </DashboardLayout>
 
-      {/* Modals */}
       {showCreateUser && (
         <CreateUserModal onClose={() => setShowCreateUser(false)} />
       )}
       {showCreateSafe && (
         <CreateSafeModal onClose={() => setShowCreateSafe(false)} />
       )}
-
-      <button onClick={testTracknetics} className="btn btn-secondary">
-        Test Tracknetics
-      </button>
     </>
   );
 }

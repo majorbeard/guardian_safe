@@ -11,6 +11,13 @@ import { LoadingSpinner } from "./LoadingSpinner";
 import { trackneticsService } from "../services/tracknetics";
 import type { Safe } from "../types";
 import { formatDistanceToNow } from "date-fns";
+import L from "leaflet";
+import {
+  fixLeafletIcons,
+  createArrowIcon,
+  getOpenStreetMapLayer,
+  getSatelliteLayer,
+} from "../utils/leafletHelpers";
 
 interface LiveTrackingProps {
   safes: Safe[];
@@ -42,216 +49,183 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
   const [mapView, setMapView] = useState<"roadmap" | "satellite">("roadmap");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const mapRef = useRef<HTMLDivElement>(null);
-  const googleMapRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
+  const leafletMapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
   const [mapsLoaded, setMapsLoaded] = useState(false);
 
-  // Initialize Google Map with async loading
-  const initializeMap = async () => {
-    if (!mapRef.current || !window.google || !mapsLoaded) return;
+  // Initialize Leaflet map
+  const initializeMap = () => {
+    if (!mapRef.current || leafletMapRef.current) return;
 
-    console.log("🗺️ Initializing Google Map...");
+    console.log("Initializing Leaflet Map...");
 
     try {
-      const map = new google.maps.Map(mapRef.current, {
+      // Fix Leaflet icons
+      fixLeafletIcons();
+
+      // Create map centered on Johannesburg
+      const map = L.map(mapRef.current, {
+        center: [-26.2041, 28.0473],
         zoom: 8,
-        center: { lat: -26.2041, lng: 28.0473 }, // Johannesburg center
-        mapTypeId:
-          mapView === "satellite"
-            ? google.maps.MapTypeId.SATELLITE
-            : google.maps.MapTypeId.ROADMAP,
-        // Remove mapId to allow custom styles, or configure styles in Google Cloud Console
-        // mapId: "guardian-safe-map",
-        styles: [
-          {
-            featureType: "poi",
-            elementType: "labels",
-            stylers: [{ visibility: "off" }],
-          },
-        ],
+        zoomControl: true,
       });
 
-      googleMapRef.current = map;
-      console.log("✅ Google Map initialized successfully");
+      // Add tile layer based on view type
+      if (mapView === "satellite") {
+        getSatelliteLayer().addTo(map);
+      } else {
+        getOpenStreetMapLayer().addTo(map);
+      }
+
+      leafletMapRef.current = map;
+      setMapsLoaded(true);
+
+      console.log("Leaflet Map initialized successfully");
     } catch (error) {
-      console.error("❌ Error initializing Google Map:", error);
+      console.error("Error initializing Leaflet Map:", error);
     }
   };
 
-  // Update map markers using new AdvancedMarkerElement
-  const updateMapMarkers = async () => {
-    if (!googleMapRef.current || !window.google || !mapsLoaded) {
+  // Update map markers
+  // Update map markers
+  const updateMapMarkers = () => {
+    if (!leafletMapRef.current || !mapsLoaded) {
       console.log("⏳ Map not ready for marker updates");
       return;
     }
 
-    console.log("🏷️ Updating map markers...");
+    console.log("Updating map markers...");
 
     try {
       // Clear existing markers
-      markersRef.current.forEach((marker) => {
-        marker.setMap(null);
-      });
+      markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
 
-      const bounds = new google.maps.LatLngBounds();
+      const bounds: L.LatLngBoundsExpression = [];
       let hasValidLocations = false;
 
-      // Create new advanced markers
+      // Create new markers
       for (const safeLocation of locations) {
         if (!safeLocation.location) continue;
 
-        const position = {
-          lat: safeLocation.location.lat,
-          lng: safeLocation.location.lng,
-        };
+        const position: L.LatLngExpression = [
+          safeLocation.location.lat,
+          safeLocation.location.lng,
+        ];
 
-        // Since we're not using mapId, we'll use regular markers instead of AdvancedMarkerElement
-        const marker = new google.maps.Marker({
-          position,
-          map: googleMapRef.current,
-          title: `Safe ${safeLocation.serialNumber}`,
-          icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            fillColor: safeLocation.status === "online" ? "#10B981" : "#EF4444",
-            fillOpacity: 1,
-            strokeColor: "#FFFFFF",
-            strokeWeight: 2,
-            scale: 8,
-          },
-        });
+        // Choose icon based on status and movement
+        const color = safeLocation.status === "online" ? "#10B981" : "#EF4444";
+        const icon =
+          safeLocation.location.speed && safeLocation.location.speed > 5
+            ? createArrowIcon(color, safeLocation.location.course || 0)
+            : L.divIcon({
+                className: "custom-marker",
+                html: `<div style="
+                background-color: ${color};
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                border: 3px solid white;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+              "></div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+              });
 
-        // Create info window
-        const infoWindow = new google.maps.InfoWindow({
-          content: `
-            <div style="padding: 8px; min-width: 200px;">
-              <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">
-                Safe ${safeLocation.serialNumber}
-              </h3>
-              <div style="font-size: 14px; line-height: 1.4;">
-                <p style="margin: 4px 0;"><strong>Status:</strong> ${getStatusLabel(
-                  safeLocation.status
-                )}</p>
-                <p style="margin: 4px 0;"><strong>Location:</strong> ${position.lat.toFixed(
-                  6
-                )}, ${position.lng.toFixed(6)}</p>
-                <p style="margin: 4px 0;"><strong>Accuracy:</strong> ±${
-                  safeLocation.location.accuracy
-                }m</p>
-                <p style="margin: 4px 0;"><strong>Updated:</strong> ${formatDistanceToNow(
-                  safeLocation.lastUpdate
-                )} ago</p>
-                ${
-                  safeLocation.location.speed
-                    ? `<p style="margin: 4px 0;"><strong>Speed:</strong> ${safeLocation.location.speed} km/h</p>`
-                    : ""
-                }
-              </div>
-            </div>
-          `,
-        });
+        const marker = L.marker(position, { icon }).addTo(
+          leafletMapRef.current!
+        );
 
-        // Add click listener
-        marker.addListener("click", () => {
-          infoWindow.open(googleMapRef.current, marker);
-        });
+        // Create popup
+        const popupContent = `
+        <div style="padding: 8px; min-width: 200px;">
+          <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">
+            Safe ${safeLocation.serialNumber}
+          </h3>
+          <div style="font-size: 14px; line-height: 1.4;">
+            <p style="margin: 4px 0;"><strong>Status:</strong> ${getStatusLabel(
+              safeLocation.status
+            )}</p>
+            <p style="margin: 4px 0;"><strong>Location:</strong> ${position[0].toFixed(
+              6
+            )}, ${position[1].toFixed(6)}</p>
+            <p style="margin: 4px 0;"><strong>Accuracy:</strong> ±${
+              safeLocation.location.accuracy
+            }m</p>
+            <p style="margin: 4px 0;"><strong>Updated:</strong> ${formatDistanceToNow(
+              safeLocation.lastUpdate
+            )} ago</p>
+            ${
+              safeLocation.location.speed
+                ? `<p style="margin: 4px 0;"><strong>Speed:</strong> ${safeLocation.location.speed} km/h</p>`
+                : ""
+            }
+          </div>
+        </div>
+      `;
 
+        marker.bindPopup(popupContent);
         markersRef.current.push(marker);
-        bounds.extend(position);
+        bounds.push(position);
         hasValidLocations = true;
       }
 
       // Fit bounds to show all markers
-      if (hasValidLocations) {
-        googleMapRef.current.fitBounds(bounds);
-
-        // Don't zoom too close for single markers
-        google.maps.event.addListenerOnce(
-          googleMapRef.current,
-          "bounds_changed",
-          () => {
-            if (googleMapRef.current && googleMapRef.current.getZoom()! > 15) {
-              googleMapRef.current.setZoom(15);
-            }
-          }
-        );
+      if (hasValidLocations && bounds.length > 0) {
+        leafletMapRef.current.fitBounds(bounds, { padding: [50, 50] });
       }
 
-      console.log(`✅ Updated ${markersRef.current.length} markers on map`);
+      // ADD THIS - Force map redraw
+      if (leafletMapRef.current) {
+        leafletMapRef.current.invalidateSize();
+      }
+
+      console.log(`Updated ${markersRef.current.length} markers on map`);
     } catch (error) {
-      console.error("❌ Error updating markers:", error);
+      console.error("Error updating markers:", error);
     }
   };
 
-  // Load Google Maps script with proper async loading
-  const loadGoogleMaps = (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      // Check if already loaded
-      if (window.google && window.google.maps) {
-        setMapsLoaded(true);
-        resolve();
-        return;
-      }
-
-      // Check if script is already loading
-      if (document.querySelector('script[src*="maps.googleapis.com"]')) {
-        const checkLoaded = () => {
-          if (window.google && window.google.maps) {
-            setMapsLoaded(true);
-            resolve();
-          } else {
-            setTimeout(checkLoaded, 100);
-          }
-        };
-        checkLoaded();
-        return;
-      }
-
-      console.log("📦 Loading Google Maps API...");
-
-      const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${
-        import.meta.env.VITE_GOOGLE_MAPS_API_KEY
-      }&libraries=geometry&loading=async&callback=initGoogleMaps`;
-      script.async = true;
-      script.defer = true;
-
-      // Global callback
-      (window as any).initGoogleMaps = () => {
-        console.log("✅ Google Maps API loaded successfully");
-        setMapsLoaded(true);
-        resolve();
-      };
-
-      script.onerror = () => {
-        console.error("❌ Failed to load Google Maps API");
-        reject(new Error("Failed to load Google Maps"));
-      };
-
-      document.head.appendChild(script);
-    });
-  };
-
-  // Load maps on component mount
+  // Switch map layer when view changes
   useEffect(() => {
-    loadGoogleMaps().catch(console.error);
+    if (leafletMapRef.current) {
+      // Remove all tile layers
+      leafletMapRef.current.eachLayer((layer) => {
+        if (layer instanceof L.TileLayer) {
+          leafletMapRef.current!.removeLayer(layer);
+        }
+      });
+
+      // Add new tile layer
+      if (mapView === "satellite") {
+        getSatelliteLayer().addTo(leafletMapRef.current);
+      } else {
+        getOpenStreetMapLayer().addTo(leafletMapRef.current);
+      }
+    }
+  }, [mapView]);
+
+  // Initialize map on mount
+  useEffect(() => {
+    initializeMap();
+
+    return () => {
+      if (leafletMapRef.current) {
+        leafletMapRef.current.remove();
+        leafletMapRef.current = null;
+      }
+    };
   }, []);
 
-  // Initialize map when maps are loaded
+  // Update markers when locations change
   useEffect(() => {
     if (mapsLoaded) {
-      initializeMap();
-    }
-  }, [mapsLoaded, mapView]);
-
-  // Update map when locations change
-  useEffect(() => {
-    if (mapsLoaded) {
+      console.log("Locations changed, updating markers");
       updateMapMarkers();
     }
   }, [locations, mapsLoaded]);
 
-  // Get trackable safes (those with tracking device IDs)
+  // Get trackable safes
   const trackableSafes = safes.filter(
     (safe) => safe.tracknetics_device_id || safe.tracking_device_id
   );
@@ -263,7 +237,7 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
     const newLocations: SafeLocationData[] = [];
 
     console.log(
-      "🗺️ Updating locations for",
+      "Updating locations for",
       trackableSafes.length,
       "trackable safes"
     );
@@ -282,7 +256,7 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
       if (deviceId) {
         try {
           console.log(
-            `📍 Getting location for safe ${safe.serial_number} (device: ${deviceId})`
+            `Getting location for safe ${safe.serial_number} (device: ${deviceId})`
           );
 
           const result = await trackneticsService.getLocationByDeviceId(
@@ -298,22 +272,19 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
             };
             safeLocation.status = "online";
             console.log(
-              `✅ Location found for ${safe.serial_number}:`,
+              `Location found for ${safe.serial_number}:`,
               result.location
             );
           } else {
             safeLocation.status = "offline";
             safeLocation.error = result.error || "No location data";
-            console.log(
-              `❌ No location for ${safe.serial_number}:`,
-              result.error
-            );
+            console.log(`No location for ${safe.serial_number}:`, result.error);
           }
         } catch (error: any) {
           safeLocation.status = "error";
           safeLocation.error = error.message || "Failed to get location";
           console.error(
-            `💥 Error getting location for ${safe.serial_number}:`,
+            `Error getting location for ${safe.serial_number}:`,
             error
           );
         }
@@ -325,11 +296,11 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
       newLocations.push(safeLocation);
     }
 
-    setLocations(newLocations);
+    setLocations([...newLocations]);
     setLastUpdate(new Date());
     setLoading(false);
 
-    console.log("🗺️ Location update complete:", newLocations);
+    console.log("Location update complete:", newLocations);
   };
 
   // Auto-refresh every 30 seconds
@@ -459,24 +430,21 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
         </div>
       </div>
 
-      {/* Google Maps */}
+      {/* Leaflet Map */}
       <div className="card">
         <div className="h-96 rounded-lg overflow-hidden bg-gray-200">
           {!mapsLoaded && (
             <div className="w-full h-full flex items-center justify-center">
               <div className="text-center">
                 <LoadingSpinner size="large" />
-                <p className="mt-4 text-gray-600">Loading Google Maps...</p>
+                <p className="mt-4 text-gray-600">Loading map...</p>
               </div>
             </div>
           )}
           <div
             ref={mapRef}
             className="w-full h-full"
-            style={{
-              minHeight: "384px",
-              display: mapsLoaded ? "block" : "none",
-            }}
+            style={{ minHeight: "384px" }}
           />
         </div>
 
@@ -501,7 +469,7 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
         </div>
       </div>
 
-      {/* Location Status Cards */}
+      {/* Location Status Cards - keeping your existing cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {locations.map((safeLocation) => {
           const safe = safes.find((s) => s.id === safeLocation.safeId);
@@ -613,18 +581,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
                             </span>
                           </div>
                         </div>
-
-                        <button
-                          onClick={() =>
-                            window.open(
-                              `https://maps.google.com/maps?q=${safeLocation.location?.lat},${safeLocation.location?.lng}`,
-                              "_blank"
-                            )
-                          }
-                          className="text-blue-600 hover:text-blue-800 text-xs"
-                        >
-                          View on Maps
-                        </button>
                       </div>
                     </div>
                   )}
@@ -651,16 +607,11 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h4 className="font-medium text-blue-800 mb-2">System Status:</h4>
         <ul className="text-sm text-blue-700 space-y-1">
-          <li>✅ Tracknetics API: Connected and operational</li>
           <li>
-            ✅ Google Maps API:{" "}
-            {mapsLoaded ? "Loaded successfully" : "Loading..."}
-          </li>
-          <li>
-            ✅ Real-time tracking:{" "}
+            Real-time tracking:{" "}
             {autoRefresh ? "Active (30s intervals)" : "Manual only"}
           </li>
-          <li>✅ Advanced markers: Using latest Google Maps API</li>
+          <li>Open source mapping with Leaflet</li>
         </ul>
       </div>
     </div>
