@@ -5,10 +5,14 @@ const config: CapacitorConfig = {
   appName: "guardian-safe-mobile",
   webDir: "dist",
   server: {
+    url: "https://guardian-safe-1uv582r1n-majorbeards-projects.vercel.app",
+    hostname: "guardian-safe-1uv582r1n-majorbeards-projects.vercel.app",
+
     androidScheme: "https",
-    // Add this for development
-    // url: "http://localhost:5174", // Updated port
-    // cleartext: true,
+    cleartext: true, // Keeps it permissive for the Alpha
+    allowNavigation: [
+      "guardian-safe-1uv582r1n-majorbeards-projects.vercel.app",
+    ],
   },
   plugins: {
     BluetoothLe: {

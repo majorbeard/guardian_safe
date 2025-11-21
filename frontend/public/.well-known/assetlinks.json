@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.guardiansafe.mobile",
+      "sha256_cert_fingerprints": [
+        "22:62:0C:FA:D3:84:89:42:C1:3F:C0:89:EA:65:FF:CE:FC:55:6B:3F:A8:BC:B6:C5:B2:D9:DE:D9:67:DA:2D:48"
+      ]
+    }
+  }
+]
