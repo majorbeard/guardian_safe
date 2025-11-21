@@ -192,7 +192,6 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
         timestamp: Date.now(),
       };
 
-      console.log("Using mock location for testing:", mockLocation);
       setLocation(mockLocation);
       setCurrentStep("otp_request");
       console.log("Location verified, ready for OTP request");
@@ -221,12 +220,6 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
       setCurrentStep("otp_enter");
       return;
     }
-
-    console.log("Requesting OTP for trip:", trip.id);
-    console.log(
-      "OTP will be sent to:",
-      trip.recipient_email || trip.client_email
-    );
 
     setLoading(true);
     setError("");
@@ -318,12 +311,12 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
         return;
       }
 
-      console.log("Safe unlocked!");
+      console.log("Safe unlocked");
 
       const tripResult = await tripsService.completeTrip(trip.id);
 
       if (tripResult.success) {
-        console.log("Delivery completed!");
+        console.log("Delivery completed");
         setCurrentStep("complete");
       } else {
         setError(tripResult.error || "Failed to complete delivery");

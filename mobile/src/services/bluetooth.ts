@@ -46,7 +46,6 @@ class BluetoothService {
 
     // For now, we'll validate during connection to Pi
     // The Pi will validate the phone's MAC on its end
-    console.log("Phone MAC validation: Using hardcoded addresses");
     return true;
   }
 
@@ -106,7 +105,7 @@ class BluetoothService {
       });
 
       this.isConnected = true;
-      console.log("Connected to Pi!");
+      console.log("Connected to Pi");
 
       return { success: true };
     } catch (err: any) {
@@ -124,8 +123,6 @@ class BluetoothService {
     }
 
     try {
-      console.log("Sending OTP to Pi:", otpCode);
-
       // Convert OTP string to bytes
       const encoder = new TextEncoder();
       const otpBytes = encoder.encode(otpCode);

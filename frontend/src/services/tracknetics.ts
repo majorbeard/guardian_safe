@@ -95,12 +95,12 @@ class TrackneticsService {
         };
         return { success: true };
       } else {
-        console.error("❌ Tracknetics login failed:", data);
+        console.error("Tracknetics login failed:", data);
         const errorMessage = this.getErrorMessage(data.state);
         return { success: false, error: `Login failed: ${errorMessage}` };
       }
     } catch (error: any) {
-      console.error("❌ Tracknetics login error:", error);
+      console.error("Tracknetics login error:", error);
       return {
         success: false,
         error: error.message || "Network error during login",
@@ -132,16 +132,12 @@ class TrackneticsService {
     }
 
     try {
-      console.log("📱 Getting device list...");
-
       const data = await this.apiCall("GetDeviceList", {
         ID: this.currentSession.userID,
         PageNo: 1,
         PageCount: 100,
         Key: this.currentSession.key,
       });
-
-      console.log("📱 Device list response:", data);
 
       if (data.state === "0") {
         return { success: true, devices: data.arr || [] };
@@ -153,7 +149,6 @@ class TrackneticsService {
         };
       }
     } catch (error: any) {
-      console.error("❌ Error getting device list:", error);
       return {
         success: false,
         error: error.message || "Network error getting device list",
@@ -250,8 +245,6 @@ class TrackneticsService {
     }
 
     try {
-      console.log("🚧 Creating geofence:", name, "at", lat, lng);
-
       const data = await this.apiCall("SaveGeofence", {
         DeviceID: deviceId,
         GeofenceName: name,
@@ -274,7 +267,7 @@ class TrackneticsService {
         };
       }
     } catch (error: any) {
-      console.error("❌ Error creating geofence:", error);
+      console.error("Error creating geofence:", error);
       return {
         success: false,
         error: error.message || "Network error creating geofence",
@@ -291,8 +284,6 @@ class TrackneticsService {
     }
 
     try {
-      console.log("📋 Getting device details for:", deviceId);
-
       const data = await this.apiCall("GetDeviceDetail", {
         DeviceID: deviceId,
         TimeZones: "South Africa Standard Time",
@@ -309,7 +300,7 @@ class TrackneticsService {
         };
       }
     } catch (error: any) {
-      console.error("❌ Error getting device details:", error);
+      console.error("Error getting device details:", error);
       return {
         success: false,
         error: error.message || "Network error getting device details",

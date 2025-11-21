@@ -57,8 +57,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
   const initializeMap = () => {
     if (!mapRef.current || leafletMapRef.current) return;
 
-    console.log("Initializing Leaflet Map...");
-
     try {
       // Fix Leaflet icons
       fixLeafletIcons();
@@ -79,8 +77,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
 
       leafletMapRef.current = map;
       setMapsLoaded(true);
-
-      console.log("Leaflet Map initialized successfully");
     } catch (error) {
       console.error("Error initializing Leaflet Map:", error);
     }
@@ -89,11 +85,8 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
   // Update map markers
   const updateMapMarkers = () => {
     if (!leafletMapRef.current || !mapsLoaded) {
-      console.log("⏳ Map not ready for marker updates");
       return;
     }
-
-    console.log("Updating map markers...");
 
     try {
       // Clear existing markers
@@ -178,8 +171,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
       if (leafletMapRef.current) {
         leafletMapRef.current.invalidateSize();
       }
-
-      console.log(`Updated ${markersRef.current.length} markers on map`);
     } catch (error) {
       console.error("Error updating markers:", error);
     }
@@ -219,7 +210,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
   // Update markers when locations change
   useEffect(() => {
     if (mapsLoaded) {
-      console.log("Locations changed, updating markers");
       updateMapMarkers();
     }
   }, [locations, mapsLoaded]);
@@ -235,12 +225,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
     setLoading(true);
     const newLocations: SafeLocationData[] = [];
 
-    console.log(
-      "Updating locations for",
-      trackableSafes.length,
-      "trackable safes"
-    );
-
     for (const safe of trackableSafes) {
       const deviceId = safe.tracknetics_device_id || safe.tracking_device_id;
 
@@ -254,10 +238,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
 
       if (deviceId) {
         try {
-          console.log(
-            `Getting location for safe ${safe.serial_number} (device: ${deviceId})`
-          );
-
           const result = await trackneticsService.getLocationByDeviceId(
             deviceId
           );
@@ -270,14 +250,9 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
               timestamp: result.location.timestamp,
             };
             safeLocation.status = "online";
-            console.log(
-              `Location found for ${safe.serial_number}:`,
-              result.location
-            );
           } else {
             safeLocation.status = "offline";
             safeLocation.error = result.error || "No location data";
-            console.log(`No location for ${safe.serial_number}:`, result.error);
           }
         } catch (error: any) {
           safeLocation.status = "error";
@@ -298,8 +273,6 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
     setLocations([...newLocations]);
     setLastUpdate(new Date());
     setLoading(false);
-
-    console.log("Location update complete:", newLocations);
   };
 
   // Auto-refresh every 30 seconds

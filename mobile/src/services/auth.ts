@@ -7,13 +7,12 @@ class MobileAuthService {
   async initialize() {
     authActions.setLoading(true);
 
-    console.log("🔄 Initializing mobile auth...");
+    console.log("Initializing mobile auth...");
 
     try {
       const storedUser = this.getStoredUser();
 
       if (storedUser) {
-        console.log("Found stored user:", storedUser.username);
         const isValid = await this.validateAndRefreshUser(storedUser);
 
         if (isValid) {
@@ -39,7 +38,6 @@ class MobileAuthService {
 
     try {
       const passwordHash = await this.hashPassword(password);
-      console.log("Generated hash:", passwordHash);
 
       const { data: users, error: findError } = await supabase
         .from("mobile_users")
@@ -47,7 +45,6 @@ class MobileAuthService {
         .eq("username", username)
         .eq("is_active", true);
 
-      console.log("User lookup result:", users);
       console.log("User lookup error:", findError);
 
       if (findError) {
@@ -62,15 +59,12 @@ class MobileAuthService {
 
       const user = users[0];
       console.log("Found user:", user.username);
-      console.log("Stored hash:", user.password_hash);
-      console.log("Generated hash:", passwordHash);
 
       if (user.password_hash !== passwordHash) {
-        console.log("Password hash mismatch");
         return { success: false, error: "Invalid username or password" };
       }
 
-      console.log("Password verified!");
+      console.log("Password verified");
 
       const { data: safe, error: safeError } = await supabase
         .from("safes")
@@ -78,7 +72,6 @@ class MobileAuthService {
         .eq("id", user.safe_id)
         .single();
 
-      console.log("Safe lookup result:", safe);
       console.log("Safe lookup error:", safeError);
 
       if (safeError || !safe) {

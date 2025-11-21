@@ -80,8 +80,6 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
   const initializeMap = () => {
     if (!mapRef.current || leafletMapRef.current || mapsError) return;
 
-    console.log("🗺️ Initializing trip tracking map...");
-
     try {
       fixLeafletIcons();
 
@@ -96,15 +94,12 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
       leafletMapRef.current = map;
       setMapsLoaded(true);
 
-      console.log("✅ Trip tracking map initialized and ready");
-
       // If we already have location data, update marker immediately
       if (location.location) {
-        console.log("🔄 Map ready, updating marker with existing location");
         updateSafeMarker();
       }
     } catch (error) {
-      console.error("❌ Error initializing trip map:", error);
+      console.error("Error initializing trip map:", error);
       setMapsError("Failed to initialize map");
     }
   };
@@ -112,12 +107,10 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
   // Update safe marker position
   const updateSafeMarker = () => {
     if (!leafletMapRef.current) {
-      console.log("⏳ Skipping marker update - map not available");
       return;
     }
 
     if (!location.location) {
-      console.log("⏳ Skipping marker update - no location data");
       return;
     }
 
@@ -125,8 +118,6 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
       location.location.lat,
       location.location.lng,
     ];
-
-    console.log("📍 Updating safe marker at:", position);
 
     try {
       if (!safeMarkerRef.current) {
@@ -188,7 +179,6 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
 
         // Center map on safe location
         leafletMapRef.current.setView(position, 15);
-        console.log("✅ Safe marker created and map centered");
       } else {
         // Update existing marker position
         safeMarkerRef.current.setLatLng(position);
@@ -197,10 +187,9 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
           position,
           leafletMapRef.current.getZoom()
         );
-        console.log("✅ Safe marker position updated");
       }
     } catch (error) {
-      console.error("❌ Error updating safe marker:", error);
+      console.error("Error updating safe marker:", error);
     }
   };
 
@@ -218,10 +207,6 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
     setLoading(true);
 
     try {
-      console.log(
-        `📍 Getting location for safe ${safe?.serial_number} (device: ${deviceId})`
-      );
-
       const result = await trackneticsService.getLocationByDeviceId(deviceId);
 
       if (result.success && result.location) {
@@ -232,18 +217,12 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
         };
         setLocation(newLocation);
         setLastUpdate(new Date());
-
-        console.log(
-          `✅ Location updated for ${safe?.serial_number}:`,
-          result.location
-        );
       } else {
         setLocation({
           status: "offline",
           error: result.error || "No location data",
           lastUpdate: new Date(),
         });
-        console.log(`❌ No location for ${safe?.serial_number}:`, result.error);
       }
     } catch (error: any) {
       setLocation({
@@ -252,7 +231,7 @@ export function TripTrackingModal({ trip, onClose }: TripTrackingModalProps) {
         lastUpdate: new Date(),
       });
       console.error(
-        `💥 Error getting location for ${safe?.serial_number}:`,
+        `Error getting location for ${safe?.serial_number}:`,
         error
       );
     } finally {

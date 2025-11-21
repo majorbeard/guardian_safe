@@ -95,8 +95,6 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
     setTrackersError("");
 
     try {
-      console.log("🔍 Fetching available trackers from Tracknetics...");
-
       // Get all devices from Tracknetics account
       const result = await trackneticsService.getDeviceList();
 
@@ -104,18 +102,10 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
         throw new Error(result.error || "Failed to fetch tracking devices");
       }
 
-      console.log(
-        `📱 Found ${result.devices.length} trackers in Tracknetics account`
-      );
-
       // Get trackers already assigned to safes in our database
       const assignedTrackerIds = safes.value
         .map((safe) => safe.tracknetics_device_id || safe.tracking_device_id)
         .filter(Boolean);
-
-      console.log(
-        `🔒 ${assignedTrackerIds.length} trackers already assigned to safes`
-      );
 
       // Filter to show only available trackers
       const availableDevices: TrackerDevice[] = result.devices.map(
@@ -131,7 +121,6 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
       const unassignedCount = availableDevices.filter(
         (d) => d.isAvailable
       ).length;
-      console.log(`✅ ${unassignedCount} trackers available for assignment`);
 
       setAvailableTrackers(availableDevices);
 
@@ -141,7 +130,7 @@ export function CreateSafeModal({ onClose }: CreateSafeModalProps) {
         );
       }
     } catch (error: any) {
-      console.error("❌ Error loading trackers:", error);
+      console.error("Error loading trackers:", error);
 
       if (
         error.message?.includes("Authentication failed") ||

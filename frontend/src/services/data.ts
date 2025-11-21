@@ -129,8 +129,6 @@ class DataService {
       return { success: false, error: "User not authenticated" };
     }
 
-    console.log("📋 Creating trip with data:", tripData);
-
     // Determine recipient
     const recipientName = tripData.recipient_is_client
       ? tripData.client_name
@@ -183,7 +181,6 @@ class DataService {
     delete enhancedTripData.recurring;
 
     try {
-      console.log("💾 Inserting trip into database...");
       const { data, error } = await supabase
         .from("trips")
         .insert(enhancedTripData)
@@ -195,9 +192,6 @@ class DataService {
         return { success: false, error: error.message };
       }
 
-      console.log("Trip created successfully:", data);
-
-      // REPLACE the email section with this:
       if (enhancedTripData.client_email) {
         console.log("Sending booking confirmation to CLIENT...");
 
@@ -296,13 +290,6 @@ class DataService {
     excludeTripId?: string
   ): Promise<any[]> {
     try {
-      console.log("Checking conflicts for:", {
-        safeId,
-        pickupTime,
-        deliveryTime,
-        excludeTripId,
-      });
-
       let query = supabase
         .from("trips")
         .select("id, client_name, scheduled_pickup, scheduled_delivery")
@@ -313,7 +300,6 @@ class DataService {
         query = query.neq("id", excludeTripId);
       }
 
-      console.log("📡 Executing Supabase query...");
       const { data, error } = await query;
 
       if (error) {
@@ -321,17 +307,12 @@ class DataService {
         return [];
       }
 
-      console.log("Conflict check results:", data);
-
       if (!data || data.length === 0) {
-        console.log("No existing trips to conflict with");
         return [];
       }
 
       const newPickup = new Date(pickupTime);
       const newDelivery = new Date(deliveryTime);
-
-      console.log("📅 New trip times:", { newPickup, newDelivery });
 
       const conflicts = data.filter((trip) => {
         const existingPickup = new Date(trip.scheduled_pickup);
@@ -650,7 +631,6 @@ class DataService {
         "postgres_changes",
         { event: "*", schema: "public", table: "safes" },
         (payload) => {
-          console.log("Safe update:", payload);
           if (payload.eventType === "INSERT") {
             dataActions.addSafe(payload.new as Safe);
           } else if (payload.eventType === "UPDATE") {
@@ -670,7 +650,6 @@ class DataService {
         "postgres_changes",
         { event: "*", schema: "public", table: "trips" },
         (payload) => {
-          console.log("Trip update:", payload);
           if (payload.eventType === "INSERT") {
             dataActions.addTrip(payload.new as Trip);
           } else if (payload.eventType === "UPDATE") {
@@ -731,11 +710,6 @@ class DataService {
     try {
       if (!trip.client_email) return;
 
-      console.log(
-        "📧 Sending booking confirmation to client:",
-        trip.client_email
-      );
-
       const trackingUrl =
         trip.customer_tracking_enabled && trip.tracking_token
           ? this.generateTrackingUrl(trip.tracking_token)
@@ -753,7 +727,7 @@ class DataService {
             recipient_name: trip.recipient_name,
             scheduled_pickup: trip.scheduled_pickup,
             scheduled_delivery: trip.scheduled_delivery,
-            tracking_url: trackingUrl, // ✅ This now uses production URL
+            tracking_url: trackingUrl,
             priority: trip.priority || "normal",
           },
         }
@@ -763,11 +737,9 @@ class DataService {
         setTimeout(() => reject(new Error("timeout")), 5000)
       );
 
-      await Promise.race([emailPromise, timeoutPromise]).catch(() => {
-        console.warn("📧 Email timeout - continuing anyway");
-      });
+      await Promise.race([emailPromise, timeoutPromise]).catch(() => {});
     } catch (error) {
-      console.error("📧 Client email error (non-blocking):", error);
+      console.error("Client email error (non-blocking):", error);
     }
   }
 
@@ -776,11 +748,6 @@ class DataService {
   async sendRecipientArrivalNotification(trip: Trip) {
     try {
       if (!trip.recipient_email) return;
-
-      console.log(
-        "📧 Sending arrival notification to recipient:",
-        trip.recipient_email
-      );
 
       // OPTIONAL: Include tracking link for recipient
       // const trackingUrl = this.generateTrackingUrl(trip.tracking_token);
@@ -811,11 +778,6 @@ class DataService {
   async sendClientDeliveryConfirmation(trip: Trip) {
     try {
       if (!trip.client_email) return;
-
-      console.log(
-        "Sending delivery confirmation to client:",
-        trip.client_email
-      );
 
       const emailPromise = supabase.functions.invoke(
         "send-delivery-confirmation",

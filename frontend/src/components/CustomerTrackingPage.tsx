@@ -111,8 +111,6 @@ export function CustomerTrackingPage({
   const initializeMap = () => {
     if (!mapRef.current || leafletMapRef.current || mapsError) return;
 
-    console.log("Initializing customer tracking map...");
-
     try {
       fixLeafletIcons();
 
@@ -135,13 +133,10 @@ export function CustomerTrackingPage({
         setTimeout(() => {
           if (leafletMapRef.current) {
             leafletMapRef.current.invalidateSize();
-            console.log("Map size invalidated");
           }
         }, 250);
 
         setMapsLoaded(true);
-        console.log("Customer tracking map initialized");
-
         // Update marker if location exists
         if (safeLocation.location) {
           setTimeout(() => updateSafeMarker(), 500);
@@ -171,10 +166,6 @@ export function CustomerTrackingPage({
     setLocationLoading(true);
 
     try {
-      console.log(
-        `Getting live location for customer tracking (device: ${deviceId})`
-      );
-
       const locationPromise =
         trackneticsService.getLocationByDeviceId(deviceId);
       const timeoutPromise = new Promise<never>((_, reject) =>
@@ -196,7 +187,6 @@ export function CustomerTrackingPage({
           lastUpdate: new Date(),
         };
         setSafeLocation(newLocation);
-        console.log(`Customer live location updated:`, result.location);
       } else {
         setSafeLocation({
           status: "offline",
@@ -218,12 +208,10 @@ export function CustomerTrackingPage({
   // Update safe marker on map
   const updateSafeMarker = () => {
     if (!leafletMapRef.current) {
-      console.log("Skipping marker update - map not available");
       return;
     }
 
     if (!safeLocation.location) {
-      console.log("Skipping marker update - no location data");
       return;
     }
 
@@ -231,8 +219,6 @@ export function CustomerTrackingPage({
       safeLocation.location.lat,
       safeLocation.location.lng,
     ];
-
-    console.log("Updating safe marker at:", position);
 
     try {
       if (!safeMarkerRef.current) {
@@ -286,7 +272,6 @@ export function CustomerTrackingPage({
 
         // Center map on safe location
         leafletMapRef.current.setView(position, 15);
-        console.log("Safe marker created and map centered");
       } else {
         // Update existing marker position
         safeMarkerRef.current.setLatLng(position);
@@ -294,7 +279,6 @@ export function CustomerTrackingPage({
           position,
           leafletMapRef.current.getZoom()
         );
-        console.log("Safe marker position updated");
       }
     } catch (error) {
       console.error("Error updating safe marker:", error);

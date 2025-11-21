@@ -108,22 +108,16 @@ export function CreateTripModal({
   };
 
   const handleSubmit = async () => {
-    console.log("🚀 Submit clicked - Current step:", currentStep);
-    console.log("📋 Form data:", formData);
-
     setError("");
     setLoading(true);
 
     try {
       // Validate all data using the data service
       if (dataService.validateTripData) {
-        console.log("✅ Starting validation...");
         const validation = dataService.validateTripData(
           formData,
           availableSafes
         );
-
-        console.log("📊 Validation result:", validation);
 
         if (!validation.isValid) {
           setError(validation.errors.join(", "));
@@ -134,7 +128,6 @@ export function CreateTripModal({
         setWarnings(validation.warnings);
       }
 
-      console.log("💾 Calling createTrip...");
       let result;
       if (editTrip && dataService.updateTrip) {
         result = await dataService.updateTrip(editTrip.id, formData);
@@ -142,17 +135,14 @@ export function CreateTripModal({
         result = await dataService.createTrip(formData);
       }
 
-      console.log("📥 Result:", result);
-
       if (result.success) {
-        console.log("✅ Trip created successfully!");
         onClose();
       } else {
-        console.error("❌ Trip creation failed:", result.error);
+        console.error("Trip creation failed:", result.error);
         setError(result.error || "Failed to save trip");
       }
     } catch (err) {
-      console.error("💥 Exception:", err);
+      console.error("Exception:", err);
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);

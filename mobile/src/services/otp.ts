@@ -46,12 +46,7 @@ class OTPService {
       const otp = this.generateOTP();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-      console.log(
-        "🔑 Generated OTP:",
-        otp,
-        "expires:",
-        expiresAt.toISOString()
-      );
+      console.log("Generated OTP", "expires:", expiresAt.toISOString());
 
       // Step 3: Store OTP in database
       const otpData = {
@@ -63,7 +58,7 @@ class OTPService {
 
       console.log("Storing OTP...");
 
-      const { data: insertedOTP, error: otpError } = await supabase
+      const { error: otpError } = await supabase
         .from("trip_otps")
         .insert(otpData)
         .select()
@@ -77,7 +72,7 @@ class OTPService {
         };
       }
 
-      console.log("OTP stored successfully:", insertedOTP);
+      console.log("OTP stored successfully");
 
       // Step 4: Send OTP via email
       const emailResult = await this.sendOTPEmail(trip, otp);
@@ -166,7 +161,7 @@ class OTPService {
     otpCode: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log("Verifying OTP:", otpCode, "for trip:", tripId);
+      console.log("Verifying OTP", "for trip:", tripId);
 
       const { data: otpRecord, error } = await supabase
         .from("trip_otps")
@@ -191,7 +186,7 @@ class OTPService {
         return { success: false, error: "Invalid or expired OTP code" };
       }
 
-      console.log("Found valid OTP record:", otpRecord.id);
+      console.log("Found valid OTP record");
 
       // Mark OTP as used
       const { error: updateError } = await supabase
