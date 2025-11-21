@@ -44,7 +44,7 @@ class AuthService {
       return { allowed: true };
     } catch (error) {
       console.error("Rate limit check error:", error);
-      return { allowed: true };
+      return { allowed: true }; // Fail open
     }
   }
 
@@ -57,12 +57,13 @@ class AuthService {
           attempt_type: "login",
           action: "log",
           success,
-          ip_address: null,
+          ip_address: null, // Edge function will detect this
           user_agent: navigator.userAgent,
         },
       });
     } catch (error) {
       console.warn("Failed to log login attempt:", error);
+      // Don't block on logging failures
     }
   }
 
@@ -321,8 +322,16 @@ class AuthService {
       if (error) {
         console.error("Failed to get user profile:", error);
 
-        // If unauthorized, session is invalid
-        if (error.code === "PGRST301" || error.message?.includes("JWT")) {
+        // Don't throw on PGRST116 (no rows) - just return null
+        if (error.code === "PGRST116") {
+          console.log("No profile found for user");
+          return null;
+        }
+
+        // If permission denied, this means RLS is blocking
+        if (error.code === "42501") {
+          console.error("RLS permission denied - this should not happen");
+          // Log out to clear bad state
           throw new Error("Invalid session");
         }
 
