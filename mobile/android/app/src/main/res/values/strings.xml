@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">guardian-safe-mobile</string>
-    <string name="title_activity_main">guardian-safe-mobile</string>
-    <string name="package_name">com.guardiansafe.mobile</string>
-    <string name="custom_url_scheme">com.guardiansafe.mobile</string>
+    <string name="app_name">Khluys</string>
+    <string name="title_activity_main">Khluys</string>
+    <string name="package_name">com.khluys.mobile</string>
+    <string name="custom_url_scheme">com.khluys.mobile</string>
 </resources>

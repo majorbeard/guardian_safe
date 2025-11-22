@@ -124,7 +124,7 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
   return (
     <div className="min-h-screen bg-white flex flex-col pb-safe">
       {/* Nav */}
-      <div className="px-4 py-4 border-b border-gray-100 flex items-center bg-white sticky top-0 z-10">
+      <div className="px-4 py-4 pt-5 border-b border-gray-100 flex items-center bg-white sticky top-0 z-10">
         <button
           onClick={onBack}
           className="p-2 -ml-2 text-gray-500 hover:bg-gray-50 rounded-full"

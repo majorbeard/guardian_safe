@@ -66,7 +66,7 @@ export function LoginScreen() {
         <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
           Driver Access
         </h2>
-        <p className="mt-2 text-sm text-gray-500">Kluys Secure Logistics</p>
+        <p className="mt-2 text-sm text-gray-500">Khluys</p>
       </div>
 
       <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
@@ -180,7 +180,7 @@ export function LoginScreen() {
         </form>
 
         <p className="mt-10 text-center text-xs text-gray-400">
-          V1.0 • For Authorized Personnel Only
+          V0.2 • For Authorized Personnel Only
         </p>
       </div>
     </div>

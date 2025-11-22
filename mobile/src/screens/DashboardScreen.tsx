@@ -131,7 +131,7 @@ export function DashboardScreen() {
   return (
     <div className="min-h-screen bg-gray-50 pb-safe">
       {/* Header */}
-      <div className="bg-white pt-safe px-4 py-4 border-b border-gray-200 sticky top-0 z-20 shadow-sm">
+      <div className="bg-white pt-safe px-4 py-4 pt-6 border-b border-gray-200 sticky top-0 z-20 shadow-sm">
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-xl font-bold text-gray-900">
@@ -226,12 +226,6 @@ export function DashboardScreen() {
               <Bluetooth className="h-5 w-5 text-gray-400" />
               <span className="text-sm font-medium">Safe disconnected</span>
             </div>
-            <button
-              onClick={() => window.location.reload()}
-              className="text-xs bg-white/10 px-2 py-1 rounded hover:bg-white/20"
-            >
-              Retry
-            </button>
           </div>
         )}
         {tripsError && (
@@ -302,7 +296,7 @@ export function DashboardScreen() {
       </div>
 
       {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 pb-safe px-6 py-3 flex justify-between items-center z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 pb-safe px-6 py-3 pb-8 flex justify-between items-center z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         <button className="flex flex-col items-center gap-1 text-brand w-16">
           <Shield className="h-6 w-6" />
           <span className="text-[10px] font-medium">Home</span>
