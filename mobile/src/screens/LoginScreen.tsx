@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { Shield, Eye, EyeOff, AlertTriangle } from "lucide-preact";
+import { Shield, Eye, EyeOff, AlertTriangle, ArrowRight } from "lucide-preact";
 import { mobileAuthService } from "../services/auth";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { validateUsername, validatePassword } from "../utils/validation";
@@ -58,52 +58,43 @@ export function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 to-blue-700 flex items-center justify-center px-4">
-      <div className="max-w-md w-full space-y-8">
-        {/* Header */}
-        <div className="text-center">
-          <div className="flex justify-center">
-            <div className="bg-white rounded-full p-3">
-              <Shield className="h-12 w-12 text-blue-600" />
-            </div>
-          </div>
-          <h2 className="mt-6 text-3xl font-extrabold text-white">
-            Guardian Safe
-          </h2>
-          <p className="mt-2 text-sm text-blue-100">Mobile Driver App</p>
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center px-6 py-12 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-sm text-center">
+        <div className="mx-auto h-16 w-16 bg-gray-900 rounded-xl flex items-center justify-center shadow-sm mb-6">
+          <Shield className="h-8 w-8 text-brand" />
         </div>
+        <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
+          Driver Access
+        </h2>
+        <p className="mt-2 text-sm text-gray-500">Kluys Secure Logistics</p>
+      </div>
 
-        {/* Login Form */}
-        <div className="bg-white rounded-xl shadow-xl p-8">
-          <form className="space-y-6" onSubmit={handleLogin}>
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <div className="flex items-center space-x-2 text-red-700">
-                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                  <span className="text-sm">{error}</span>
-                </div>
-              </div>
-            )}
+      <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
+        <form className="space-y-6" onSubmit={handleLogin}>
+          {error && (
+            <div className="bg-red-50 border border-red-100 rounded-lg p-3 flex items-center space-x-3">
+              <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0" />
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
 
-            <div>
-              <label
-                htmlFor="username"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                Username
-              </label>
+          <div>
+            <label htmlFor="username" className="label">
+              Username
+            </label>
+            <div className="mt-1">
               <input
                 id="username"
                 name="username"
                 type="text"
                 autoComplete="username"
                 required
-                className={`block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+                className={`input ${
                   validationErrors.username
-                    ? "border-red-300"
-                    : "border-gray-300"
+                    ? "border-red-300 focus:border-red-500 focus:ring-red-200"
+                    : ""
                 }`}
-                placeholder="Enter your username"
+                placeholder="Enter username"
                 value={username}
                 onInput={(e) => {
                   setUsername((e.target as HTMLInputElement).value);
@@ -119,75 +110,78 @@ export function LoginScreen() {
                 </p>
               )}
             </div>
-
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  required
-                  className={`block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 pr-10 ${
-                    validationErrors.password
-                      ? "border-red-300"
-                      : "border-gray-300"
-                  }`}
-                  placeholder="Enter your password"
-                  value={password}
-                  onInput={(e) => {
-                    setPassword((e.target as HTMLInputElement).value);
-                    setValidationErrors({
-                      ...validationErrors,
-                      password: undefined,
-                    });
-                  }}
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5" />
-                  ) : (
-                    <Eye className="h-5 w-5" />
-                  )}
-                </button>
-              </div>
-              {validationErrors.password && (
-                <p className="mt-1 text-sm text-red-600">
-                  {validationErrors.password}
-                </p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? (
-                <div className="flex items-center space-x-2">
-                  <LoadingSpinner size="small" />
-                  <span>Signing in...</span>
-                </div>
-              ) : (
-                "Sign In to Safe"
-              )}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <p className="text-xs text-gray-500">Guardian Safe Mobile v1.0</p>
           </div>
-        </div>
+
+          <div>
+            <label htmlFor="password" className="label">
+              Password
+            </label>
+            <div className="mt-1 relative">
+              <input
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                className={`input pr-10 ${
+                  validationErrors.password
+                    ? "border-red-300 focus:border-red-500 focus:ring-red-200"
+                    : ""
+                }`}
+                placeholder="Enter password"
+                value={password}
+                onInput={(e) => {
+                  setPassword((e.target as HTMLInputElement).value);
+                  setValidationErrors({
+                    ...validationErrors,
+                    password: undefined,
+                  });
+                }}
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-5 w-5" />
+                ) : (
+                  <Eye className="h-5 w-5" />
+                )}
+              </button>
+            </div>
+            {validationErrors.password && (
+              <p className="mt-1 text-sm text-red-600">
+                {validationErrors.password}
+              </p>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full btn btn-primary py-3 text-base shadow-md"
+          >
+            {loading ? (
+              <div className="flex items-center justify-center space-x-2">
+                <LoadingSpinner
+                  size="small"
+                  className="text-white border-white"
+                />
+                <span>Authenticating...</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center">
+                <span>Sign In</span>
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </div>
+            )}
+          </button>
+        </form>
+
+        <p className="mt-10 text-center text-xs text-gray-400">
+          V1.0 • For Authorized Personnel Only
+        </p>
       </div>
     </div>
   );

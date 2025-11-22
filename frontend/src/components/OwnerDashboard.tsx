@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { Plus, Users, Shield, Package } from "lucide-preact";
+import { Plus, Users, Shield, Package, Activity, MapPin } from "lucide-preact";
 import { DashboardLayout } from "./DashboardLayout";
 import { CreateUserModal } from "./CreateUserModal";
 import { CreateSafeModal } from "./CreateSafeModal";
@@ -7,13 +7,14 @@ import { UsersList } from "./UsersList";
 import { SafesList } from "./SafesList";
 import { TripsList } from "./TripsList";
 import { StatsCards } from "./StatsCards";
+import { LiveTracking } from "./LiveTracking"; // Added import
 import { safes, trips } from "../store/data";
 
 export function OwnerDashboard() {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showCreateSafe, setShowCreateSafe] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "overview" | "users" | "safes" | "trips" | "security"
+    "overview" | "users" | "safes" | "trips" | "tracking"
   >("overview");
 
   const safesList = safes.value;
@@ -26,84 +27,132 @@ export function OwnerDashboard() {
     activeTrips: tripsList.filter((t) => t.status === "in_transit").length,
   };
 
+  // Define Tabs Configuration - Added Tracking Tab
+  const tabs = [
+    {
+      id: "overview",
+      label: "Overview",
+      icon: Activity,
+      isActive: activeTab === "overview",
+      onClick: () => setActiveTab("overview"),
+    },
+    {
+      id: "users",
+      label: "Users",
+      icon: Users,
+      isActive: activeTab === "users",
+      onClick: () => setActiveTab("users"),
+    },
+    {
+      id: "safes",
+      label: "Safes",
+      icon: Shield,
+      isActive: activeTab === "safes",
+      onClick: () => setActiveTab("safes"),
+    },
+    {
+      id: "trips",
+      label: "Trips",
+      icon: Package,
+      isActive: activeTab === "trips",
+      onClick: () => setActiveTab("trips"),
+    },
+    {
+      id: "tracking",
+      label: "Live Fleet",
+      icon: MapPin,
+      isActive: activeTab === "tracking",
+      onClick: () => setActiveTab("tracking"),
+    },
+  ];
+
+  // Context-aware Actions
   const actions = (
     <div className="flex space-x-3">
-      <button
-        onClick={() => setShowCreateUser(true)}
-        className="btn btn-secondary"
-      >
-        <Users className="h-4 w-4 mr-2" />
-        Add User
-      </button>
-      <button
-        onClick={() => setShowCreateSafe(true)}
-        className="btn btn-primary"
-      >
-        <Plus className="h-4 w-4 mr-2" />
-        Register Safe
-      </button>
+      {activeTab === "users" && (
+        <button
+          onClick={() => setShowCreateUser(true)}
+          className="btn btn-secondary"
+        >
+          <Users className="h-4 w-4 mr-2" /> Add User
+        </button>
+      )}
+      {(activeTab === "safes" ||
+        activeTab === "overview" ||
+        activeTab === "tracking") && (
+        <button
+          onClick={() => setShowCreateSafe(true)}
+          className="btn btn-primary"
+        >
+          <Plus className="h-4 w-4 mr-2" /> Register Safe
+        </button>
+      )}
     </div>
   );
 
-  const tabs = [
-    { id: "overview", label: "Overview", icon: Package },
-    { id: "users", label: "Users", icon: Users },
-    { id: "safes", label: "Safes", icon: Shield },
-    { id: "trips", label: "Trips", icon: Package },
-  ];
-
   return (
     <>
-      <DashboardLayout title="Guardian Safe" actions={actions}>
-        <div className="bg-white rounded-lg shadow mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8 px-6">
-              {tabs.map((tab) => {
-                const IconComponent = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as any)}
-                    className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
-                      activeTab === tab.id
-                        ? "border-blue-500 text-blue-600"
-                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                    }`}
-                  >
-                    <IconComponent className="h-4 w-4" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-        </div>
-
+      <DashboardLayout tabs={tabs as any} actions={actions}>
         {activeTab === "overview" && (
-          <div className="space-y-6">
+          <div className="space-y-8 animate-fade-in">
             <StatsCards stats={stats} />
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="card">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">
-                  Recent Safes
-                </h3>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-medium text-gray-900">
+                    Recent Safes
+                  </h3>
+                  <button
+                    onClick={() => setActiveTab("safes")}
+                    className="text-sm text-brand hover:text-brand-hover"
+                  >
+                    View all
+                  </button>
+                </div>
                 <SafesList limit={5} showActions={false} />
               </div>
 
               <div className="card">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">
-                  Recent Trips
-                </h3>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-medium text-gray-900">
+                    Recent Trips
+                  </h3>
+                  <button
+                    onClick={() => setActiveTab("trips")}
+                    className="text-sm text-brand hover:text-brand-hover"
+                  >
+                    View all
+                  </button>
+                </div>
                 <TripsList limit={5} showActions={false} />
               </div>
             </div>
           </div>
         )}
 
-        {activeTab === "users" && <UsersList />}
-        {activeTab === "safes" && <SafesList />}
-        {activeTab === "trips" && <TripsList />}
+        {activeTab === "users" && (
+          <div className="animate-fade-in">
+            <UsersList />
+          </div>
+        )}
+        {activeTab === "safes" && (
+          <div className="animate-fade-in">
+            <SafesList />
+          </div>
+        )}
+        {activeTab === "trips" && (
+          <div className="animate-fade-in">
+            <TripsList />
+          </div>
+        )}
+
+        {/* Owner sees ALL safes on the map at all times */}
+        {activeTab === "tracking" && (
+          <div className="animate-fade-in">
+            <LiveTracking safes={safesList} />
+          </div>
+        )}
       </DashboardLayout>
 
       {showCreateUser && (

@@ -1,50 +1,126 @@
 @import "tailwindcss";
 
+@theme {
+  /* Khluys Brand Colors */
+  --color-brand: #ff6b35;
+  --color-brand-hover: #ff5722;
+  --color-brand-light: #fff1ec;
+
+  /* Semantic Borders & Radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem; /* 6px */
+  --radius-lg: 0.5rem; /* 8px */
+
+  /* Animation Primitives */
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-slide-up: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes slide-up {
+    from {
+      transform: translateY(10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+}
+
 @layer base {
   body {
-    font-family: system-ui, -apple-system, sans-serif;
+    @apply bg-gray-50 text-gray-900 antialiased;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      Roboto, sans-serif;
+  }
+
+  /* Refined Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full hover:bg-gray-400;
   }
 }
 
 @layer components {
+  /* --- Buttons --- */
   .btn {
-    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-brand disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98];
   }
 
   .btn-primary {
-    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+    @apply bg-brand text-white border border-transparent hover:bg-brand-hover shadow-sm;
   }
 
   .btn-secondary {
-    @apply bg-gray-100 text-gray-900 hover:bg-gray-200 focus:ring-gray-500;
+    @apply bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:text-gray-900 shadow-sm;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-gray-500 hover:text-gray-900 hover:bg-gray-100;
   }
 
   .btn-danger {
-    @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+    @apply bg-white text-red-600 border border-red-200 hover:bg-red-50 hover:border-red-300;
   }
 
+  /* --- Inputs & Forms --- */
   .input {
-    @apply block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500;
+    @apply block w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-sm text-gray-900 placeholder-gray-400
+    transition-colors duration-200
+    focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand
+    disabled:bg-gray-50 disabled:text-gray-500;
   }
 
+  .label {
+    @apply block text-sm font-medium text-gray-700 mb-1.5;
+  }
+
+  /* --- Surface & Layout --- */
   .card {
-    @apply bg-white rounded-lg shadow p-6;
-  }
-}
-
-@layer utilities {
-  @keyframes slide-in {
-    from {
-      transform: translateX(100%);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
+    @apply bg-white px-3 py-3 rounded-lg border border-gray-200;
   }
 
-  .animate-slide-in {
-    animation: slide-in 0.3s ease-out;
+  /* shadow-[0_1px_3px_rgba(0,0,0,0.05)]; */
+
+  .table-header {
+    @apply px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200 bg-gray-50;
+  }
+
+  .table-cell {
+    @apply px-6 py-4 whitespace-nowrap text-sm text-gray-500 border-b border-gray-100;
+  }
+
+  /* --- Badges --- */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border;
+  }
+  .badge-success {
+    @apply bg-green-50 text-green-700 border-green-200;
+  }
+  .badge-warning {
+    @apply bg-orange-50 text-orange-700 border-orange-200;
+  }
+  .badge-error {
+    @apply bg-red-50 text-red-700 border-red-200;
+  }
+  .badge-neutral {
+    @apply bg-gray-100 text-gray-700 border-gray-200;
+  }
+  .badge-brand {
+    @apply bg-brand-light text-brand border-brand-light;
   }
 }

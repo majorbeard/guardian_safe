@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { Shield, Eye, EyeOff } from "lucide-preact";
+import { Shield, Eye, EyeOff, ArrowRight, Lock } from "lucide-preact";
 import { authService } from "../services/auth";
 import { LoadingSpinner } from "./LoadingSpinner";
 
@@ -14,14 +14,9 @@ export function LoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-
     try {
       const result = await authService.login(email, password);
-
-      if (!result.success) {
-        setError(result.error || "Login failed");
-      }
-      // Success is handled by auth state change
+      if (!result.success) setError(result.error || "Login failed");
     } catch (err) {
       setError("Network error. Please try again.");
     } finally {
@@ -30,68 +25,54 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 to-blue-700 flex items-center justify-center px-4">
-      <div className="max-w-md w-full space-y-8">
-        {/* Header */}
-        <div className="text-center">
-          <div className="flex justify-center">
-            <div className="bg-white rounded-full p-3">
-              <Shield className="h-12 w-12 text-blue-600" />
-            </div>
-          </div>
-          <h2 className="mt-6 text-3xl font-extrabold text-white">
-            Guardian Safe
-          </h2>
-          <p className="mt-2 text-sm text-blue-100">
-            Secure Delivery Management System
-          </p>
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      {/* Brand Header */}
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+        <div className="mx-auto h-12 w-12 bg-gray-900 rounded-lg flex items-center justify-center shadow-sm">
+          <Shield className="h-6 w-6 text-brand" />
         </div>
+        <h2 className="mt-6 text-3xl font-medium tracking-tight text-gray-900">
+          Khluys
+        </h2>
+        <p className="mt-2 text-sm text-gray-500">Premium Secure Logistics</p>
+      </div>
 
-        {/* Login Form */}
-        <div className="bg-white rounded-xl shadow-xl p-8">
+      {/* Login Card */}
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-4 shadow-sm border border-gray-200 sm:rounded-lg sm:px-10 animate-slide-up">
           <form className="space-y-6" onSubmit={handleLogin}>
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
+              <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-md text-sm flex items-center">
+                <Lock className="h-4 w-4 mr-2" />
                 {error}
               </div>
             )}
 
             <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Email Address
+              <label htmlFor="email" className="label">
+                Email address
               </label>
               <input
                 id="email"
-                name="email"
                 type="email"
-                autoComplete="email"
                 required
-                className="mt-1 input"
-                placeholder="Enter your email"
+                className="input"
+                placeholder="name@company.com"
                 value={email}
                 onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
               />
             </div>
 
             <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-700"
-              >
+              <label htmlFor="password" className="label">
                 Password
               </label>
-              <div className="mt-1 relative">
+              <div className="relative">
                 <input
                   id="password"
-                  name="password"
                   type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
                   required
                   className="input pr-10"
-                  placeholder="Enter your password"
                   value={password}
                   onInput={(e) =>
                     setPassword((e.target as HTMLInputElement).value)
@@ -99,13 +80,13 @@ export function LoginPage() {
                 />
                 <button
                   type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? (
-                    <EyeOff className="h-5 w-5" />
+                    <EyeOff className="h-4 w-4" />
                   ) : (
-                    <Eye className="h-5 w-5" />
+                    <Eye className="h-4 w-4" />
                   )}
                 </button>
               </div>
@@ -114,29 +95,26 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full btn btn-primary py-3 text-base font-medium"
+              className="w-full btn btn-primary group"
             >
               {loading ? (
-                <>
-                  <LoadingSpinner size="small" className="mr-2" />
-                  Signing in...
-                </>
+                <LoadingSpinner
+                  size="small"
+                  className="mr-2 text-white border-white"
+                />
               ) : (
-                "Sign In"
+                <>
+                  Sign in securely
+                  <ArrowRight className="ml-2 h-4 w-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                </>
               )}
             </button>
           </form>
-
-          <div className="mt-6 text-center">
-            <p className="text-xs text-gray-500">
-              Contact your administrator for account access or password reset.
-            </p>
-          </div>
         </div>
 
-        <div className="text-center text-blue-100 text-sm">
-          © 2024 Guardian Safe System. All rights reserved.
-        </div>
+        <p className="mt-6 text-center text-xs text-gray-400">
+          © 2025 Khluys Security Services.
+        </p>
       </div>
     </div>
   );

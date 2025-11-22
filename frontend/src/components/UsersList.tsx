@@ -1,5 +1,5 @@
 import { useState, useEffect } from "preact/hooks";
-import { User, Calendar, Shield } from "lucide-preact";
+import { User, Shield } from "lucide-preact"; // Calendar, MoreVertical,
 import { supabase } from "../lib/supabase";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { format } from "date-fns";
@@ -10,13 +10,11 @@ interface UserData {
   role: string;
   is_active: boolean;
   created_at: string;
-  created_by: string | null;
 }
 
 export function UsersList() {
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     loadUsers();
@@ -24,186 +22,102 @@ export function UsersList() {
 
   const loadUsers = async () => {
     try {
-      const { data, error } = await supabase
-        .from("profiles") // Changed from "users"
-        .select("id, username, role, is_active, created_at, created_by")
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
         .order("created_at", { ascending: false });
-
-      if (error) {
-        setError(error.message);
-      } else {
-        setUsers(data || []);
-      }
-    } catch (err) {
-      setError("Failed to load users");
+      setUsers(data || []);
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
-    try {
-      const { error } = await supabase
-        .from("profiles") // Changed from "users"
-        .update({ is_active: !currentStatus })
-        .eq("id", userId);
-
-      if (error) {
-        console.error("Failed to update user status:", error);
-      } else {
-        // Refresh users list
-        loadUsers();
-      }
-    } catch (err) {
-      console.error("Error updating user status:", err);
-    }
+  const toggleStatus = async (userId: string, current: boolean) => {
+    await supabase
+      .from("profiles")
+      .update({ is_active: !current })
+      .eq("id", userId);
+    loadUsers();
   };
 
-  if (loading) {
+  if (loading)
     return (
-      <div className="flex items-center justify-center py-8">
-        <LoadingSpinner size="medium" />
-        <span className="ml-2 text-gray-600">Loading users...</span>
+      <div className="py-8 text-center">
+        <LoadingSpinner />
       </div>
     );
-  }
-
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-        Error: {error}
-      </div>
-    );
-  }
-
-  const adminUsers = users.filter((user) => user.role === "admin");
-  const ownerUsers = users.filter((user) => user.role === "owner");
 
   return (
-    <div className="space-y-6">
-      {/* Owner Users */}
-      {ownerUsers.length > 0 && (
-        <div className="card">
-          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center space-x-2">
-            <Shield className="h-5 w-5 text-purple-600" />
-            <span>Owner Accounts ({ownerUsers.length})</span>
-          </h3>
-
-          <div className="space-y-3">
-            {ownerUsers.map((user) => (
-              <div
-                key={user.id}
-                className="border border-gray-200 rounded-lg p-4"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="bg-purple-100 rounded-full p-2">
-                      <Shield className="h-5 w-5 text-purple-600" />
-                    </div>
-
-                    <div>
-                      <h4 className="font-medium text-gray-900">
-                        {user.username}
-                      </h4>
-                      <div className="flex items-center space-x-4 text-sm text-gray-500">
-                        <div className="flex items-center space-x-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>
-                            Joined{" "}
-                            {format(new Date(user.created_at), "MMM d, yyyy")}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+    <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              User
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Role
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Status
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Joined
+            </th>
+            <th className="relative px-6 py-3">
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {users.map((user) => (
+            <tr key={user.id} className="hover:bg-gray-50">
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
+                    <User className="h-4 w-4" />
                   </div>
-
-                  <div className="flex items-center space-x-3">
-                    <span
-                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        user.is_active
-                          ? "text-green-800 bg-green-100"
-                          : "text-red-800 bg-red-100"
-                      }`}
-                    >
-                      {user.is_active ? "Active" : "Inactive"}
-                    </span>
+                  <div className="ml-4">
+                    <div className="text-sm font-medium text-gray-900">
+                      {user.username}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Admin Users */}
-      <div className="card">
-        <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center space-x-2">
-          <User className="h-5 w-5 text-blue-600" />
-          <span>Admin Accounts ({adminUsers.length})</span>
-        </h3>
-
-        {adminUsers.length === 0 ? (
-          <div className="text-center py-8">
-            <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">No admin users created yet</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {adminUsers.map((user) => (
-              <div
-                key={user.id}
-                className="border border-gray-200 rounded-lg p-4"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="bg-blue-100 rounded-full p-2">
-                      <User className="h-5 w-5 text-blue-600" />
-                    </div>
-
-                    <div>
-                      <h4 className="font-medium text-gray-900">
-                        {user.username}
-                      </h4>
-                      <div className="flex items-center space-x-4 text-sm text-gray-500">
-                        <div className="flex items-center space-x-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>
-                            Joined{" "}
-                            {format(new Date(user.created_at), "MMM d, yyyy")}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-3">
-                    <span
-                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        user.is_active
-                          ? "text-green-800 bg-green-100"
-                          : "text-red-800 bg-red-100"
-                      }`}
-                    >
-                      {user.is_active ? "Active" : "Inactive"}
-                    </span>
-
-                    <button
-                      onClick={() => toggleUserStatus(user.id, user.is_active)}
-                      className={`text-sm ${
-                        user.is_active
-                          ? "text-red-600 hover:text-red-800"
-                          : "text-green-600 hover:text-green-800"
-                      }`}
-                    >
-                      {user.is_active ? "Deactivate" : "Activate"}
-                    </button>
-                  </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center text-sm text-gray-500 capitalize">
+                  {user.role === "owner" && (
+                    <Shield className="h-3 w-3 mr-1 text-purple-500" />
+                  )}
+                  {user.role}
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <span
+                  className={`badge ${
+                    user.is_active ? "badge-success" : "badge-neutral"
+                  }`}
+                >
+                  {user.is_active ? "Active" : "Inactive"}
+                </span>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                {format(new Date(user.created_at), "MMM d, yyyy")}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <button
+                  onClick={() => toggleStatus(user.id, user.is_active)}
+                  className={`text-xs hover:underline ${
+                    user.is_active ? "text-red-600" : "text-green-600"
+                  }`}
+                >
+                  {user.is_active ? "Deactivate" : "Activate"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

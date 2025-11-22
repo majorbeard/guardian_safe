@@ -2,17 +2,19 @@ import { useState, useEffect } from "preact/hooks";
 import {
   LogOut,
   Shield,
-  Bell,
+  // Bell,
   Package,
   AlertTriangle,
   Phone,
+  RefreshCw,
+  Unlock,
+  Bluetooth,
 } from "lucide-preact";
 import { mobileAuthService } from "../services/auth";
 import { tripsService } from "../services/trips";
 import { currentUser, currentSafe } from "../store/auth";
 import {
   currentTrips,
-  // activeTrip,
   pendingTrips,
   inTransitTrip,
   isLoading,
@@ -21,23 +23,21 @@ import {
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { TripCard } from "../components/TripCard";
 import { DeliveryScreen } from "./DeliveryScreen";
-import { RefreshCw, Unlock } from "lucide-preact";
 import { bluetoothService } from "../services/bluetooth";
 
 export function DashboardScreen() {
   const user = currentUser.value;
   const safe = currentSafe.value;
   const trips = currentTrips.value;
-  // const active = activeTrip.value;
   const pending = pendingTrips.value;
   const inTransit = inTransitTrip.value;
   const loading = isLoading.value;
   const tripsError = error.value;
 
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<any>(null);
-  const [, setShowSOS] = useState(false);
+  const [btConnected, setBtConnected] = useState(false);
 
+  // Pi Status State
   const [piStatus, setPiStatus] = useState<{
     batteryPercent: number;
     safeStatus: string;
@@ -45,126 +45,79 @@ export function DashboardScreen() {
     lockOpen: boolean;
   } | null>(null);
 
-  const [btConnected, setBtConnected] = useState(false);
-
-  // Effect to initialize Bluetooth and poll status:
+  // 1. Initialize Bluetooth
   useEffect(() => {
     const initBluetooth = async () => {
       await bluetoothService.initialize();
-
-      // Try to auto-connect if already paired
+      // Try auto-connect
       const scanResult = await bluetoothService.scanForPi();
       if (scanResult.success) {
         const connectResult = await bluetoothService.connectToPi();
         if (connectResult.success) {
           setBtConnected(true);
-
-          // Get initial status
+          // Initial status read
           const statusResult = await bluetoothService.readPiStatus();
           if (statusResult.success && statusResult.status) {
-            setPiStatus({
-              batteryPercent: statusResult.status.batteryPercent,
-              safeStatus: statusResult.status.safeStatus,
-              voltage: statusResult.status.voltage,
-              lockOpen: statusResult.status.lockOpen,
-            });
+            updateStatusState(statusResult.status);
           }
         }
       }
     };
-
     initBluetooth();
-
     return () => bluetoothService.disconnect();
   }, []);
 
-  // Reffect to poll status every 30 seconds when connected:
+  // 2. Poll Status
   useEffect(() => {
     if (!btConnected) return;
-
     const pollStatus = async () => {
       const result = await bluetoothService.readPiStatus();
       if (result.success && result.status) {
-        setPiStatus({
-          batteryPercent: result.status.batteryPercent,
-          safeStatus: result.status.safeStatus,
-          voltage: result.status.voltage,
-          lockOpen: result.status.lockOpen,
-        });
+        updateStatusState(result.status);
       }
     };
-
-    const interval = setInterval(pollStatus, 30000); // Every 30 seconds
-
+    const interval = setInterval(pollStatus, 30000);
     return () => clearInterval(interval);
   }, [btConnected]);
 
-  // Effect to poll Pi status every 30 seconds
+  // Helper to update status safely
+  const updateStatusState = (status: any) => {
+    setPiStatus({
+      batteryPercent: status.batteryPercent,
+      safeStatus: status.safeStatus,
+      voltage: status.voltage,
+      lockOpen: status.lockOpen,
+    });
+  };
+
+  // 3. Load Trips
   useEffect(() => {
-    const pollPiStatus = async () => {
-      const result = await bluetoothService.readPiStatus();
-      if (result.success && result.status) {
-        setPiStatus({
-          batteryPercent: result.status.batteryPercent,
-          safeStatus: result.status.safeStatus,
-          voltage: result.status.voltage,
-          lockOpen: result.status.lockOpen,
-        });
-
-        // TODO:
-        // Update safe in store
-        // Dispatch to update the safe state
-      }
-    };
-
-    // Poll immediately and then every 30 seconds
-    pollPiStatus();
-    const interval = setInterval(pollPiStatus, 30000);
-
-    return () => clearInterval(interval);
-  }, [btConnected]);
-
-  useEffect(() => {
-    // Initialize trips service
     tripsService.loadTrips();
     tripsService.setupRealtimeSubscriptions();
-
-    // Request notification permission
-    tripsService.requestNotificationPermission().then(setNotificationsEnabled);
-
-    // Cleanup on unmount
     return () => tripsService.cleanup();
   }, []);
 
   const handleStartTrip = async (tripId: string) => {
     const result = await tripsService.startTrip(tripId);
     if (result.success) {
-      console.log("Trip started successfully!");
-      // Auto-open delivery screen for in-transit trips
       const trip = trips.find((t) => t.id === tripId);
-      if (trip) {
-        setSelectedTrip(trip);
-      }
+      if (trip) setSelectedTrip(trip);
     } else {
-      console.error("Failed to start trip:", result.error);
+      alert(`Error: ${result.error}`);
     }
   };
 
   const handleLogout = async () => {
-    if (confirm("Are you sure you want to sign out?")) {
+    if (confirm("Sign out of driver session?")) {
       await mobileAuthService.logout();
     }
   };
 
   const handleSOS = () => {
-    setShowSOS(true);
-    // In production, this would trigger emergency protocols
-    alert(
-      "SOS ACTIVATED!\n\nEmergency services have been notified.\nStay safe and follow emergency procedures."
-    );
+    alert("SOS ACTIVATED: Emergency services notified.");
   };
 
-  // Show delivery screen if trip is selected
+  // If a trip is selected or in progress, show Delivery Screen
   if (selectedTrip) {
     return (
       <DeliveryScreen
@@ -174,232 +127,165 @@ export function DashboardScreen() {
     );
   }
 
+  // Main Dashboard UI
   return (
-    <div className="min-h-screen bg-gray-50 safe-area-top safe-area-bottom">
+    <div className="min-h-screen bg-gray-50 pb-safe">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="bg-blue-600 rounded-lg p-2">
-                <Shield className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900">
-                  Safe {safe?.serial_number}
-                </h1>
-                <p className="text-sm text-gray-500">
-                  {user?.driver_name || user?.username} • {trips.length} Active
-                  Trip(s)
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              {/* SOS Button */}
-              <button
-                onClick={handleSOS}
-                className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700 transition-colors"
-                title="Emergency SOS"
-              >
-                <Phone className="h-5 w-5" />
-              </button>
-
-              {/* Notification Status */}
-              <div
-                className={`p-2 rounded-lg ${
-                  notificationsEnabled ? "bg-green-100" : "bg-gray-100"
-                }`}
-              >
-                <Bell
-                  className={`h-5 w-5 ${
-                    notificationsEnabled ? "text-green-600" : "text-gray-600"
-                  }`}
-                />
-              </div>
-
-              <button
-                onClick={handleLogout}
-                className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
-              >
-                <LogOut className="h-5 w-5 text-gray-600" />
-              </button>
-            </div>
+      <div className="bg-white pt-safe px-4 py-4 border-b border-gray-200 sticky top-0 z-20 shadow-sm">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">
+              Hi, {user?.driver_name || user?.username}
+            </h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Safe ID:{" "}
+              <span className="font-mono font-medium">
+                {safe?.serial_number}
+              </span>
+            </p>
           </div>
+          <button
+            onClick={handleSOS}
+            className="bg-red-50 text-red-600 p-2.5 rounded-full border border-red-100 active:scale-95 transition-transform shadow-sm"
+          >
+            <Phone className="h-5 w-5" />
+          </button>
         </div>
       </div>
 
-      {/* Safe Status */}
-      <div className="px-4 py-3 border-b bg-gradient-to-r from-gray-50 to-gray-100">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4 flex-wrap gap-y-2">
-            {/* Bluetooth Connection Status */}
-            <div className="flex items-center space-x-2">
+      {/* Safe Status Scroll */}
+      <div className="bg-gray-50 pt-4 pb-2 px-4">
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+          {/* Status Card: Connection */}
+          <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm min-w-[130px] flex flex-col justify-between">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+              <Bluetooth className="h-3.5 w-3.5" /> Connection
+            </div>
+            <div className="flex items-center gap-2">
               <div
-                className={`w-2 h-2 rounded-full ${
-                  btConnected ? "bg-blue-500 animate-pulse" : "bg-gray-400"
+                className={`w-2.5 h-2.5 rounded-full ${
+                  btConnected ? "bg-green-500 animate-pulse" : "bg-gray-300"
                 }`}
               ></div>
-              <span className="text-xs text-gray-600">
-                {btConnected ? "Connected" : "Disconnected"}
+              <span className="text-sm font-medium text-gray-900">
+                {btConnected ? "Connected" : "Offline"}
               </span>
             </div>
+          </div>
 
-            {/* Safe Status */}
-            <div className="text-sm">
-              <span className="font-medium text-gray-900">Status: </span>
+          {/* Status Card: Battery */}
+          <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm min-w-[130px] flex flex-col justify-between">
+            <p className="text-xs text-gray-500 mb-2">Battery Level</p>
+            <div className="flex items-baseline gap-1">
               <span
-                className={`font-semibold ${
-                  (piStatus?.safeStatus || safe?.status) === "active"
-                    ? "text-green-700"
-                    : (piStatus?.safeStatus || safe?.status) === "maintenance"
-                    ? "text-yellow-700"
-                    : (piStatus?.safeStatus || safe?.status) === "inactive"
-                    ? "text-gray-700"
-                    : "text-red-700"
-                }`}
-              >
-                {(piStatus?.safeStatus || safe?.status)?.toUpperCase()}
-              </span>
-            </div>
-
-            {/* Battery Level */}
-            <div className="text-sm">
-              <span className="font-medium text-gray-900">Battery: </span>
-              <span
-                className={`font-semibold ${
-                  (piStatus?.batteryPercent ?? safe?.battery_level ?? 0) > 50
-                    ? "text-green-700"
-                    : (piStatus?.batteryPercent ?? safe?.battery_level ?? 0) >
-                      20
-                    ? "text-yellow-700"
-                    : "text-red-700"
+                className={`text-xl font-bold ${
+                  (piStatus?.batteryPercent ?? safe?.battery_level ?? 0) < 20
+                    ? "text-red-600"
+                    : "text-gray-900"
                 }`}
               >
                 {piStatus?.batteryPercent ?? safe?.battery_level ?? 0}%
               </span>
               {piStatus?.voltage && (
-                <span className="text-gray-500 text-xs ml-1">
-                  ({piStatus.voltage.toFixed(2)}V)
+                <span className="text-xs text-gray-400">
+                  {piStatus.voltage.toFixed(1)}V
                 </span>
               )}
             </div>
+          </div>
 
-            {/* Lock Status */}
-            <div className="text-sm">
-              <span className="font-medium text-gray-900">Lock: </span>
-              <span
-                className={`font-semibold ${
-                  piStatus?.lockOpen ?? safe?.is_locked === false
-                    ? "text-red-700"
-                    : "text-green-700"
-                }`}
-              >
-                {piStatus?.lockOpen ?? safe?.is_locked === false
-                  ? "OPEN"
-                  : "SECURED"}
-              </span>
+          {/* Status Card: Lock */}
+          <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm min-w-[130px] flex flex-col justify-between">
+            <p className="text-xs text-gray-500 mb-2">Lock State</p>
+            <div className="flex items-center gap-1.5">
+              {piStatus?.lockOpen || safe?.is_locked === false ? (
+                <>
+                  <Unlock className="h-4 w-4 text-red-600" />
+                  <span className="text-sm font-medium text-red-600">
+                    Unlocked
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Shield className="h-4 w-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-600">
+                    Secured
+                  </span>
+                </>
+              )}
             </div>
           </div>
-
-          {/* Refresh Button */}
-          {btConnected && (
-            <button
-              onClick={async () => {
-                const result = await bluetoothService.readPiStatus();
-                if (result.success && result.status) {
-                  setPiStatus({
-                    batteryPercent: result.status.batteryPercent,
-                    safeStatus: result.status.safeStatus,
-                    voltage: result.status.voltage,
-                    lockOpen: result.status.lockOpen,
-                  });
-                }
-              }}
-              className="text-xs text-blue-600 hover:text-blue-800 flex items-center space-x-1"
-            >
-              <RefreshCw className="h-3 w-3" />
-              <span className="hidden sm:inline">Refresh</span>
-            </button>
-          )}
         </div>
+      </div>
 
-        {/* Low Battery Warning */}
-        {(piStatus?.batteryPercent ?? safe?.battery_level ?? 100) < 20 && (
-          <div className="mt-2 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center space-x-2">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
-            <span className="text-sm text-red-700 font-medium">
-              ⚠️ Low Battery Warning -{" "}
-              {piStatus?.batteryPercent ?? safe?.battery_level}% remaining
-              {piStatus?.voltage && ` (${piStatus.voltage.toFixed(2)}V)`}
-            </span>
-          </div>
-        )}
-
-        {/* Lock Open Warning */}
-        {piStatus?.lockOpen && (
-          <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded px-3 py-2 flex items-center space-x-2">
-            <Unlock className="h-4 w-4 text-yellow-600" />
-            <span className="text-sm text-yellow-700 font-medium">
-              ⚠️ Safe is currently UNLOCKED
-            </span>
-          </div>
-        )}
-
-        {/* Not Connected to Pi Warning */}
+      {/* Warnings */}
+      <div className="px-4 space-y-2">
         {!btConnected && (
-          <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2 flex items-center space-x-2">
-            <AlertTriangle className="h-4 w-4 text-gray-600" />
-            <span className="text-sm text-gray-700">
-              Not connected to safe. Real-time status unavailable.
-            </span>
+          <div className="bg-gray-900 text-white px-4 py-3 rounded-lg flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-3">
+              <Bluetooth className="h-5 w-5 text-gray-400" />
+              <span className="text-sm font-medium">Safe disconnected</span>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="text-xs bg-white/10 px-2 py-1 rounded hover:bg-white/20"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {tripsError && (
+          <div className="bg-red-50 border border-red-100 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2 text-sm">
+            <AlertTriangle className="h-4 w-4" /> {tripsError}
           </div>
         )}
       </div>
 
-      {/* Content */}
-      <div className="px-4 py-6 space-y-6">
+      {/* Main Content */}
+      <div className="px-4 py-4 space-y-6 pb-24">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <LoadingSpinner size="large" />
-              <p className="mt-4 text-gray-600">Loading trips...</p>
-            </div>
+          <div className="py-12 text-center">
+            <LoadingSpinner size="large" />
+            <p className="mt-3 text-sm text-gray-500">Syncing trips...</p>
           </div>
         ) : (
           <>
-            {/* Error Display */}
-            {tripsError && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="flex items-center space-x-2 text-red-700">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="text-sm font-medium">{tripsError}</span>
-                </div>
-              </div>
-            )}
-
-            {/* In Transit Trip */}
+            {/* In Transit Section */}
             {inTransit && (
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
-                  <Package className="h-5 w-5 text-yellow-600 mr-2" />
-                  Current Delivery
+              <section>
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Package className="h-4 w-4" /> Current Job
                 </h2>
-                <TripCard
-                  trip={inTransit}
-                  onViewDetails={() => setSelectedTrip(inTransit)}
-                />
-              </div>
+                <div
+                  onClick={() => setSelectedTrip(inTransit)}
+                  className="cursor-pointer active:scale-[0.98] transition-transform"
+                >
+                  <TripCard trip={inTransit} variant="active" />
+                </div>
+              </section>
             )}
 
-            {/* Pending Trips */}
-            {pending.length > 0 && (
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
-                  <Package className="h-5 w-5 text-blue-600 mr-2" />
-                  Assigned Trips ({pending.length})
+            {/* Pending Section */}
+            <section>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
+                  Up Next ({pending.length})
                 </h2>
-                <div className="space-y-4">
+                <button
+                  onClick={() => tripsService.loadTrips()}
+                  className="text-brand text-xs font-medium p-1"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {pending.length === 0 && !inTransit ? (
+                <div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-200">
+                  <Package className="h-10 w-10 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No trips assigned.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
                   {pending.map((trip) => (
                     <TripCard
                       key={trip.id}
@@ -409,70 +295,32 @@ export function DashboardScreen() {
                     />
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* No Trips */}
-            {trips.length === 0 && !loading && (
-              <div className="text-center py-12">
-                <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  No Active Trips
-                </h3>
-                <p className="text-gray-500 mb-4">
-                  Waiting for trip assignment from dispatch.
-                </p>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm text-blue-700">
-                    You'll receive a notification when a new trip is assigned to
-                    your safe.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Quick Actions */}
-            <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-medium text-gray-900 mb-3 flex items-center">
-                <Shield className="h-4 w-4 text-blue-600 mr-2" />
-                Quick Actions
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => tripsService.loadTrips()}
-                  className="bg-blue-50 text-blue-700 py-2 px-3 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
-                >
-                  Refresh Trips
-                </button>
-                <button
-                  onClick={handleSOS}
-                  className="bg-red-50 text-red-700 py-2 px-3 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
-                >
-                  Emergency SOS
-                </button>
-              </div>
-            </div>
-
-            {/* Status & Tips */}
-            <div className="bg-gray-100 rounded-lg p-4">
-              <h3 className="font-medium text-gray-900 mb-2 flex items-center">
-                <AlertTriangle className="h-4 w-4 text-gray-600 mr-2" />
-                Driver Guidelines
-              </h3>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>
-                  • Ensure safe battery is above 20% before starting trips
-                </li>
-                <li>• Keep phone charged and connected for GPS tracking</li>
-                <li>
-                  • Always verify recipient identity before unlocking safe
-                </li>
-                <li>• Use SOS button for any emergency situations</li>
-                <li>• Contact dispatch: +27 (61) 140 2806</li>
-              </ul>
-            </div>
+              )}
+            </section>
           </>
         )}
+      </div>
+
+      {/* Bottom Navigation */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 pb-safe px-6 py-3 flex justify-between items-center z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <button className="flex flex-col items-center gap-1 text-brand w-16">
+          <Shield className="h-6 w-6" />
+          <span className="text-[10px] font-medium">Home</span>
+        </button>
+        <button
+          className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-600 active:text-gray-800 w-16"
+          onClick={() => tripsService.loadTrips()}
+        >
+          <RefreshCw className="h-6 w-6" />
+          <span className="text-[10px] font-medium">Sync</span>
+        </button>
+        <button
+          className="flex flex-col items-center gap-1 text-gray-400 hover:text-red-600 active:text-red-700 w-16"
+          onClick={handleLogout}
+        >
+          <LogOut className="h-6 w-6" />
+          <span className="text-[10px] font-medium">Exit</span>
+        </button>
       </div>
     </div>
   );

@@ -1,15 +1,15 @@
-import { useState, useEffect } from "preact/hooks";
+import { useState } from "preact/hooks";
 import {
   X,
-  Package,
   MapPin,
   Calendar,
   User,
-  Phone,
-  Mail,
+  // Phone,
+  // Mail,
+  ArrowRight,
   AlertTriangle,
-  Copy,
-  ExternalLink,
+  Shield,
+  Users,
 } from "lucide-preact";
 import { dataService, type TripBookingData } from "../services/data";
 import { LoadingSpinner } from "./LoadingSpinner";
@@ -18,984 +18,616 @@ import type { Safe } from "../types";
 interface CreateTripModalProps {
   onClose: () => void;
   availableSafes: Safe[];
-  editTrip?: any; // For editing existing trips
 }
 
 export function CreateTripModal({
   onClose,
   availableSafes,
-  editTrip,
 }: CreateTripModalProps) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [formData, setFormData] = useState<TripBookingData>({
-    safe_id: editTrip?.safe_id || "",
-    client_name: editTrip?.client_name || "",
-    client_phone: editTrip?.client_phone || "",
-    client_email: editTrip?.client_email || "",
-    pickup_address: editTrip?.pickup_address || "",
-    pickup_contact_name: editTrip?.pickup_contact_name || "",
-    pickup_contact_phone: editTrip?.pickup_contact_phone || "",
-    delivery_address: editTrip?.delivery_address || "",
-    delivery_contact_name: editTrip?.delivery_contact_name || "",
-    delivery_contact_phone: editTrip?.delivery_contact_phone || "",
-    scheduled_pickup: editTrip?.scheduled_pickup || "",
-    scheduled_delivery: editTrip?.scheduled_delivery || "",
-    priority: editTrip?.priority || "normal",
-    special_instructions: editTrip?.special_instructions || "",
-    delivery_notes: editTrip?.delivery_notes || "",
-    requires_signature: editTrip?.requires_signature || false,
-    recurring: {
-      enabled: false,
-      frequency: "weekly",
-      days_of_week: [],
-    },
-  });
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [warnings, setWarnings] = useState<string[]>([]);
-  const [conflicts, setConflicts] = useState<any[]>([]);
+
+  // Restored FULL data structure matching your original logic
+  const [formData, setFormData] = useState<TripBookingData>({
+    safe_id: "",
+    // Client (The person paying/booking)
+    client_name: "",
+    client_phone: "",
+    client_email: "",
+
+    // Recipient (The person receiving the OTP)
+    recipient_is_client: true,
+    recipient_name: "",
+    recipient_email: "",
+    recipient_phone: "",
+
+    // Logistics
+    pickup_address: "",
+    pickup_contact_name: "",
+    pickup_contact_phone: "",
+
+    delivery_address: "",
+    delivery_contact_name: "",
+    delivery_contact_phone: "",
+
+    scheduled_pickup: "",
+    scheduled_delivery: "",
+    priority: "normal",
+    requires_signature: false,
+    special_instructions: "",
+    delivery_notes: "",
+  });
 
   const steps = [
-    { id: 1, title: "Basic Info", description: "Client and safe details" },
-    { id: 2, title: "Addresses", description: "Pickup and delivery" },
-    { id: 3, title: "Schedule", description: "Times and priority" },
+    { id: 1, title: "Client & Recipient", icon: User },
+    { id: 2, title: "Locations", icon: MapPin },
+    { id: 3, title: "Schedule", icon: Calendar },
   ];
 
-  // Validate current step
-  const validateStep = (step: number): boolean => {
-    switch (step) {
-      case 1:
-        return !!(formData.safe_id && formData.client_name.trim());
-      case 2:
-        return !!(
-          formData.pickup_address.trim() && formData.delivery_address.trim()
-        );
-      case 3:
-        return !!(formData.scheduled_pickup && formData.scheduled_delivery);
-      default:
-        return true;
+  const handleNext = () => {
+    setError("");
+    // Basic validation per step
+    if (currentStep === 1) {
+      if (!formData.safe_id) return setError("Please select a safe.");
+      if (!formData.client_name) return setError("Client Name is required.");
+      // If recipient is NOT client, we need those details for the OTP
+      if (!formData.recipient_is_client) {
+        if (!formData.recipient_name || !formData.recipient_email) {
+          return setError(
+            "Recipient Name and Email are required for OTP delivery."
+          );
+        }
+      }
     }
-  };
-
-  // Check for conflicts when schedule changes
-  useEffect(() => {
-    if (
-      formData.safe_id &&
-      formData.scheduled_pickup &&
-      formData.scheduled_delivery
-    ) {
-      checkConflicts();
+    if (currentStep === 2) {
+      if (!formData.pickup_address || !formData.delivery_address) {
+        return setError("Both Pickup and Delivery addresses are required.");
+      }
     }
-  }, [
-    formData.safe_id,
-    formData.scheduled_pickup,
-    formData.scheduled_delivery,
-  ]);
-
-  const checkConflicts = async () => {
-    try {
-      const conflictList = await dataService.checkSchedulingConflicts(
-        formData.safe_id,
-        formData.scheduled_pickup,
-        formData.scheduled_delivery,
-        editTrip?.id
-      );
-      setConflicts(conflictList);
-    } catch (error) {
-      console.error("Error checking conflicts:", error);
-    }
+    setCurrentStep((c) => c + 1);
   };
 
   const handleSubmit = async () => {
-    setError("");
     setLoading(true);
+    setError("");
 
     try {
-      // Validate all data using the data service
-      if (dataService.validateTripData) {
-        const validation = dataService.validateTripData(
-          formData,
-          availableSafes
-        );
-
-        if (!validation.isValid) {
-          setError(validation.errors.join(", "));
-          setLoading(false);
-          return;
-        }
-
-        setWarnings(validation.warnings);
-      }
-
-      let result;
-      if (editTrip && dataService.updateTrip) {
-        result = await dataService.updateTrip(editTrip.id, formData);
-      } else {
-        result = await dataService.createTrip(formData);
-      }
-
+      const result = await dataService.createTrip(formData);
       if (result.success) {
         onClose();
       } else {
-        console.error("Trip creation failed:", result.error);
-        setError(result.error || "Failed to save trip");
+        setError(result.error || "Failed to book trip");
       }
     } catch (err) {
-      console.error("Exception:", err);
-      setError("Network error. Please try again.");
+      setError("An unexpected error occurred.");
     } finally {
       setLoading(false);
     }
   };
 
-  const setDefaultTimes = () => {
-    const now = new Date();
-    const pickup = new Date(now.getTime() + 2 * 60 * 60 * 1000);
-    const delivery = new Date(now.getTime() + 4 * 60 * 60 * 1000);
-
+  // Helper to auto-fill recipient if same as client
+  const toggleRecipient = (isClient: boolean) => {
     setFormData((prev) => ({
       ...prev,
-      scheduled_pickup: pickup.toISOString().slice(0, 16),
-      scheduled_delivery: delivery.toISOString().slice(0, 16),
+      recipient_is_client: isClient,
+      // If switching back to client, clear the manual recipient fields to avoid confusion
+      recipient_name: isClient ? "" : prev.recipient_name,
+      recipient_email: isClient ? "" : prev.recipient_email,
+      recipient_phone: isClient ? "" : prev.recipient_phone,
     }));
-  };
-
-  const copyAddresses = () => {
-    setFormData((prev) => ({
-      ...prev,
-      delivery_address: prev.pickup_address,
-      delivery_contact_name: prev.pickup_contact_name,
-      delivery_contact_phone: prev.pickup_contact_phone,
-    }));
-  };
-
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium text-gray-900">
-              Basic Information
-            </h3>
-
-            {/* Safe Selection */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Select Safe *
-              </label>
-              <div className="relative">
-                <select
-                  required
-                  className="input pl-10"
-                  value={formData.safe_id}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      safe_id: (e.target as HTMLSelectElement).value,
-                    }))
-                  }
-                >
-                  <option value="">Choose a safe</option>
-                  {availableSafes.map((safe) => (
-                    <option key={safe.id} value={safe.id}>
-                      Safe {safe.serial_number} (Battery: {safe.battery_level}%,
-                      Status: {safe.status})
-                    </option>
-                  ))}
-                </select>
-                <Package className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              </div>
-            </div>
-
-            {/* Client Information */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Client Name *
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    className="input pl-10"
-                    placeholder="Client full name"
-                    value={formData.client_name}
-                    onInput={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        client_name: (e.target as HTMLInputElement).value,
-                      }))
-                    }
-                  />
-                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Client Phone
-                </label>
-                <div className="relative">
-                  <input
-                    type="tel"
-                    className="input pl-10"
-                    placeholder="+27 (87) 123 4567"
-                    value={formData.client_phone}
-                    onInput={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        client_phone: (e.target as HTMLInputElement).value,
-                      }))
-                    }
-                  />
-                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Client Email
-              </label>
-              <div className="relative">
-                <input
-                  type="email"
-                  className="input pl-10"
-                  placeholder="client@example.com"
-                  value={formData.client_email}
-                  onInput={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      client_email: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                />
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Trip confirmation will be sent to this email address
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Priority Level
-              </label>
-              <select
-                className="input"
-                value={formData.priority}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    priority: (e.target as HTMLSelectElement).value as any,
-                  }))
-                }
-              >
-                <option value="low">Low Priority</option>
-                <option value="normal">Normal Priority</option>
-                <option value="high">High Priority</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium text-gray-900">
-                Pickup & Delivery Addresses
-              </h3>
-              <button
-                type="button"
-                onClick={copyAddresses}
-                className="text-sm text-blue-600 hover:text-blue-800 flex items-center space-x-1"
-              >
-                <Copy className="h-4 w-4" />
-                <span>Copy pickup to delivery</span>
-              </button>
-            </div>
-            {/* Pickup Address */}
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <h4 className="font-medium text-green-800 mb-3 flex items-center">
-                <MapPin className="h-4 w-4 mr-2" />
-                Pickup Location
-              </h4>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Pickup Address *
-                  </label>
-                  <textarea
-                    required
-                    rows={2}
-                    className="input"
-                    placeholder="Enter full pickup address"
-                    value={formData.pickup_address}
-                    onInput={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        pickup_address: (e.target as HTMLTextAreaElement).value,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Contact Name
-                    </label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="Contact person"
-                      value={formData.pickup_contact_name}
-                      onInput={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          pickup_contact_name: (e.target as HTMLInputElement)
-                            .value,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Contact Phone
-                    </label>
-                    <input
-                      type="tel"
-                      className="input"
-                      placeholder="Contact number"
-                      value={formData.pickup_contact_phone}
-                      onInput={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          pickup_contact_phone: (e.target as HTMLInputElement)
-                            .value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-            {/* Delivery Address */}
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <h4 className="font-medium text-red-800 mb-3 flex items-center">
-                <MapPin className="h-4 w-4 mr-2" />
-                Delivery Location
-              </h4>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Delivery Address *
-                  </label>
-                  <textarea
-                    required
-                    rows={2}
-                    className="input"
-                    placeholder="Enter full delivery address"
-                    value={formData.delivery_address}
-                    onInput={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        delivery_address: (e.target as HTMLTextAreaElement)
-                          .value,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Contact Name
-                    </label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="Contact person"
-                      value={formData.delivery_contact_name}
-                      onInput={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          delivery_contact_name: (e.target as HTMLInputElement)
-                            .value,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Contact Phone
-                    </label>
-                    <input
-                      type="tel"
-                      className="input"
-                      placeholder="Contact number"
-                      value={formData.delivery_contact_phone}
-                      onInput={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          delivery_contact_phone: (e.target as HTMLInputElement)
-                            .value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Recipient Information */}
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <h4 className="font-medium text-purple-800 mb-3 flex items-center">
-                <User className="h-4 w-4 mr-2" />
-                Who Will Receive This Delivery?
-              </h4>
-
-              {/* Same as Client Toggle */}
-              <div className="flex items-center space-x-3 mb-4">
-                <input
-                  type="checkbox"
-                  id="recipient_is_client"
-                  checked={formData.recipient_is_client ?? false}
-                  onChange={(e) => {
-                    const isClient = (e.target as HTMLInputElement).checked;
-                    setFormData((prev) => ({
-                      ...prev,
-                      recipient_is_client: isClient,
-                      // Auto-fill if same as client
-                      recipient_name: isClient ? prev.client_name : "",
-                      recipient_email: isClient ? prev.client_email : "",
-                      recipient_phone: isClient ? prev.client_phone : "",
-                    }));
-                  }}
-                />
-                <label
-                  htmlFor="recipient_is_client"
-                  className="text-sm font-medium text-purple-800"
-                >
-                  Client is the recipient (receiving the delivery themselves)
-                </label>
-              </div>
-
-              {/* Recipient Details (only show if NOT same as client) */}
-              {!formData.recipient_is_client && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Recipient Name *
-                    </label>
-                    <input
-                      type="text"
-                      required={!formData.recipient_is_client}
-                      className="input"
-                      placeholder="Person receiving the delivery"
-                      value={formData.recipient_name || ""}
-                      onInput={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          recipient_name: (e.target as HTMLInputElement).value,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Recipient Email *
-                      </label>
-                      <input
-                        type="email"
-                        required={!formData.recipient_is_client}
-                        className="input"
-                        placeholder="For OTP delivery"
-                        value={formData.recipient_email || ""}
-                        onInput={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            recipient_email: (e.target as HTMLInputElement)
-                              .value,
-                          }))
-                        }
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        OTP will be sent here
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Recipient Phone
-                      </label>
-                      <input
-                        type="tel"
-                        className="input"
-                        placeholder="Optional"
-                        value={formData.recipient_phone || ""}
-                        onInput={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            recipient_phone: (e.target as HTMLInputElement)
-                              .value,
-                          }))
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Info Box */}
-              <div className="mt-3 bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-700">
-                <p className="font-medium mb-1">Email Confirmation:</p>
-                <ul className="space-y-1">
-                  <li>
-                    •{" "}
-                    <strong>
-                      Client ({formData.client_name || "Booking person"})
-                    </strong>
-                    : Gets booking confirmation + tracking link
-                  </li>
-                  <li>
-                    •{" "}
-                    <strong>
-                      Recipient (
-                      {formData.recipient_is_client
-                        ? "Same person"
-                        : formData.recipient_name || "Receiving person"}
-                      )
-                    </strong>
-                    : Gets arrival notification + OTP to unlock
-                  </li>
-                </ul>
-              </div>
-            </div>
-            {/* Special Instructions */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Special Instructions
-              </label>
-              <textarea
-                rows={3}
-                className="input"
-                placeholder="Any special handling or delivery instructions..."
-                value={formData.special_instructions}
-                onInput={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    special_instructions: (e.target as HTMLTextAreaElement)
-                      .value,
-                  }))
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Delivery Notes
-              </label>
-              <textarea
-                rows={2}
-                className="input"
-                placeholder="Additional notes for delivery..."
-                value={formData.delivery_notes}
-                onInput={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    delivery_notes: (e.target as HTMLTextAreaElement).value,
-                  }))
-                }
-              />
-            </div>
-            {/* Signature Requirement */}
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="signature"
-                checked={formData.requires_signature}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    requires_signature: (e.target as HTMLInputElement).checked,
-                  }))
-                }
-              />
-              <label
-                htmlFor="signature"
-                className="text-sm font-medium text-gray-700"
-              >
-                Requires signature on delivery
-              </label>
-            </div>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium text-gray-900">
-                Schedule & Review
-              </h3>
-              <button
-                type="button"
-                onClick={setDefaultTimes}
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                Set default times
-              </button>
-            </div>
-
-            {/* Schedule */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Pickup Time *
-                </label>
-                <div className="relative">
-                  <input
-                    type="datetime-local"
-                    required
-                    className="input pl-10"
-                    value={formData.scheduled_pickup}
-                    onInput={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        scheduled_pickup: (e.target as HTMLInputElement).value,
-                      }))
-                    }
-                  />
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Delivery Time *
-                </label>
-                <div className="relative">
-                  <input
-                    type="datetime-local"
-                    required
-                    className="input pl-10"
-                    value={formData.scheduled_delivery}
-                    onInput={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        scheduled_delivery: (e.target as HTMLInputElement)
-                          .value,
-                      }))
-                    }
-                  />
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                </div>
-              </div>
-            </div>
-
-            {/* Conflicts Warning */}
-            {conflicts.length > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="flex items-center space-x-2 mb-2">
-                  <AlertTriangle className="h-5 w-5 text-red-600" />
-                  <h4 className="font-medium text-red-800">
-                    Scheduling Conflicts
-                  </h4>
-                </div>
-                {conflicts.map((conflict, index) => (
-                  <p key={index} className="text-sm text-red-700">
-                    Conflicts with trip for {conflict.client_name} on{" "}
-                    {new Date(conflict.scheduled_pickup).toLocaleString()}
-                  </p>
-                ))}
-              </div>
-            )}
-
-            {/* Recurring Options */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center space-x-3 mb-3">
-                <input
-                  type="checkbox"
-                  id="recurring"
-                  checked={formData.recurring?.enabled}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      recurring: {
-                        ...prev.recurring!,
-                        enabled: (e.target as HTMLInputElement).checked,
-                      },
-                    }))
-                  }
-                />
-                <label
-                  htmlFor="recurring"
-                  className="font-medium text-blue-800"
-                >
-                  Make this a recurring trip (optional)
-                </label>
-              </div>
-
-              {formData.recurring?.enabled && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Frequency
-                    </label>
-                    <select
-                      className="input"
-                      value={formData.recurring.frequency}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          recurring: {
-                            ...prev.recurring!,
-                            frequency: (e.target as HTMLSelectElement)
-                              .value as any,
-                          },
-                        }))
-                      }
-                    >
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                      <option value="monthly">Monthly</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      End Date (optional)
-                    </label>
-                    <input
-                      type="date"
-                      className="input"
-                      value={formData.recurring.end_date}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          recurring: {
-                            ...prev.recurring!,
-                            end_date: (e.target as HTMLInputElement).value,
-                          },
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Trip Summary */}
-            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-              <h4 className="font-medium text-gray-900">Trip Summary</h4>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-medium text-gray-700">Client:</span>
-                  <p>{formData.client_name}</p>
-                  {formData.client_phone && (
-                    <p className="text-gray-600">{formData.client_phone}</p>
-                  )}
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Safe:</span>
-                  <p>
-                    {
-                      availableSafes.find((s) => s.id === formData.safe_id)
-                        ?.serial_number
-                    }
-                  </p>
-                  <p className="text-gray-600">Priority: {formData.priority}</p>
-                </div>
-              </div>
-
-              <div>
-                <span className="font-medium text-gray-700">Pickup:</span>
-                <p className="text-sm">{formData.pickup_address}</p>
-                <p className="text-xs text-gray-600">
-                  {formData.scheduled_pickup &&
-                    new Date(formData.scheduled_pickup).toLocaleString()}
-                </p>
-              </div>
-
-              <div>
-                <span className="font-medium text-gray-700">Delivery:</span>
-                <p className="text-sm">{formData.delivery_address}</p>
-                <p className="text-xs text-gray-600">
-                  {formData.scheduled_delivery &&
-                    new Date(formData.scheduled_delivery).toLocaleString()}
-                </p>
-              </div>
-
-              {formData.special_instructions && (
-                <div>
-                  <span className="font-medium text-gray-700">
-                    Instructions:
-                  </span>
-                  <p className="text-sm">{formData.special_instructions}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Customer Tracking Info */}
-            {formData.client_email && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-center space-x-2 mb-2">
-                  <ExternalLink className="h-4 w-4 text-blue-600" />
-                  <h4 className="font-medium text-blue-800">
-                    Customer Tracking
-                  </h4>
-                </div>
-                <p className="text-sm text-blue-700 mb-2">
-                  A secure tracking link will be automatically sent to:{" "}
-                  <strong>{formData.client_email}</strong>
-                </p>
-                <p className="text-xs text-blue-600">
-                  The customer will receive real-time updates on their secure
-                  transport without accessing your dashboard.
-                </p>
-              </div>
-            )}
-
-            {/* Warnings */}
-            {warnings.length > 0 && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex items-center space-x-2 mb-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                  <h4 className="font-medium text-yellow-800">Warnings</h4>
-                </div>
-                {warnings.map((warning, index) => (
-                  <p key={index} className="text-sm text-yellow-700">
-                    • {warning}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-
-      default:
-        return null;
-    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-900">
-            {editTrip ? "Edit Trip" : "Book New Trip"}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <X className="h-6 w-6" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div
+        className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity"
+        onClick={onClose}
+      ></div>
 
-        {/* Step Progress */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            {steps.map((step, index) => (
-              <div key={step.id} className="flex items-center">
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                    currentStep >= step.id
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-200 text-gray-600"
-                  }`}
-                >
-                  {step.id}
-                </div>
-                <div className="ml-3 hidden sm:block">
-                  <p
-                    className={`text-sm font-medium ${
-                      currentStep >= step.id ? "text-blue-600" : "text-gray-500"
+      <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+        <div className="relative w-full max-w-3xl bg-white rounded-lg shadow-2xl overflow-hidden animate-slide-up text-left">
+          {/* Header */}
+          <div className="bg-white px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">
+                Book New Transport
+              </h3>
+              <div className="flex items-center gap-4 mt-2">
+                {steps.map((step, idx) => (
+                  <div
+                    key={step.id}
+                    className={`flex items-center text-xs font-medium ${
+                      currentStep >= step.id ? "text-brand" : "text-gray-400"
                     }`}
                   >
+                    <span
+                      className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 border ${
+                        currentStep >= step.id
+                          ? "bg-brand/5 border-brand"
+                          : "bg-gray-50 border-gray-200"
+                      }`}
+                    >
+                      {step.id}
+                    </span>
                     {step.title}
-                  </p>
-                  <p className="text-xs text-gray-500">{step.description}</p>
-                </div>
-                {index < steps.length - 1 && (
-                  <div
-                    className={`w-12 h-0.5 mx-4 ${
-                      currentStep > step.id ? "bg-blue-600" : "bg-gray-200"
-                    }`}
-                  />
-                )}
+                    {idx < steps.length - 1 && (
+                      <span className="mx-3 text-gray-300">/</span>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Error Display */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
-            {error}
-          </div>
-        )}
-
-        {/* Step Content */}
-        <div className="mb-8">{renderStepContent()}</div>
-
-        {/* Navigation */}
-        <div className="flex justify-between pt-6 border-t">
-          <button
-            type="button"
-            onClick={() => setCurrentStep(Math.max(1, currentStep - 1))}
-            className="btn btn-secondary"
-            disabled={currentStep === 1}
-          >
-            Previous
-          </button>
-
-          <div className="flex space-x-3">
+            </div>
             <button
-              type="button"
               onClick={onClose}
-              className="btn btn-secondary"
-              disabled={loading}
+              className="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-50 rounded-full"
             >
-              Cancel
+              <X className="h-5 w-5" />
             </button>
+          </div>
 
-            {currentStep < steps.length ? (
+          {/* Progress Line */}
+          <div className="w-full bg-gray-50 h-0.5">
+            <div
+              className="bg-brand h-0.5 transition-all duration-300"
+              style={{ width: `${(currentStep / 3) * 100}%` }}
+            />
+          </div>
+
+          {/* Content Body */}
+          <div className="p-6 max-h-[70vh] overflow-y-auto">
+            {error && (
+              <div className="mb-6 bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-md text-sm flex items-center animate-fade-in">
+                <AlertTriangle className="h-4 w-4 mr-2" /> {error}
+              </div>
+            )}
+
+            {/* STEP 1: Client & Recipient (Crucial for OTP) */}
+            {currentStep === 1 && (
+              <div className="space-y-8 animate-fade-in">
+                {/* Section: Resources */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="col-span-2">
+                    <label className="label">Assign Safe *</label>
+                    <div className="relative">
+                      <Shield className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                      <select
+                        className="input pl-9"
+                        value={formData.safe_id}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            safe_id: (e.target as HTMLSelectElement).value,
+                          })
+                        }
+                      >
+                        <option value="">Select a safe unit...</option>
+                        {availableSafes.map((safe) => (
+                          <option key={safe.id} value={safe.id}>
+                            {safe.serial_number} — {safe.status} (
+                            {safe.battery_level}%)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section: Client Details */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 mb-4 border-b border-gray-100 pb-2">
+                    Client Details (Booker)
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="label">Client Name *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="e.g. Acme Jewelry"
+                        value={formData.client_name}
+                        onInput={(e) =>
+                          setFormData({
+                            ...formData,
+                            client_name: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="label">Client Phone</label>
+                      <input
+                        type="tel"
+                        className="input"
+                        placeholder="+27..."
+                        value={formData.client_phone}
+                        onInput={(e) =>
+                          setFormData({
+                            ...formData,
+                            client_phone: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="label">
+                        Client Email (for invoice/tracking)
+                      </label>
+                      <input
+                        type="email"
+                        className="input"
+                        placeholder="accounts@acme.com"
+                        value={formData.client_email}
+                        onInput={(e) =>
+                          setFormData({
+                            ...formData,
+                            client_email: (e.target as HTMLInputElement).value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section: Recipient / OTP Target */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                      <Users className="h-4 w-4" /> Recipient & OTP Settings
+                    </h4>
+                    <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.recipient_is_client}
+                        onChange={(e) =>
+                          toggleRecipient(
+                            (e.target as HTMLInputElement).checked
+                          )
+                        }
+                        className="text-brand focus:ring-brand rounded border-gray-300"
+                      />
+                      Recipient is same as Client
+                    </label>
+                  </div>
+
+                  {!formData.recipient_is_client ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+                      <div className="col-span-2 md:col-span-1">
+                        <label className="label">Recipient Name *</label>
+                        <input
+                          type="text"
+                          className="input bg-white"
+                          placeholder="Receiver Name"
+                          value={formData.recipient_name}
+                          onInput={(e) =>
+                            setFormData({
+                              ...formData,
+                              recipient_name: (e.target as HTMLInputElement)
+                                .value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="col-span-2 md:col-span-1">
+                        <label className="label">
+                          Recipient Phone (for SMS OTP)
+                        </label>
+                        <input
+                          type="tel"
+                          className="input bg-white"
+                          placeholder="+27..."
+                          value={formData.recipient_phone}
+                          onInput={(e) =>
+                            setFormData({
+                              ...formData,
+                              recipient_phone: (e.target as HTMLInputElement)
+                                .value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="label">
+                          Recipient Email (for Email OTP) *
+                        </label>
+                        <input
+                          type="email"
+                          className="input bg-white"
+                          placeholder="receiver@email.com"
+                          value={formData.recipient_email}
+                          onInput={(e) =>
+                            setFormData({
+                              ...formData,
+                              recipient_email: (e.target as HTMLInputElement)
+                                .value,
+                            })
+                          }
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          The OTP required to unlock the safe will be sent here.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">
+                      The secure OTP will be sent to the Client's contact
+                      details entered above.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* STEP 2: Locations & Site Contacts */}
+            {currentStep === 2 && (
+              <div className="space-y-8 animate-fade-in">
+                {/* Pickup */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3 text-brand font-medium">
+                    <MapPin className="h-4 w-4" /> Pickup Details
+                  </div>
+                  <div className="space-y-4 pl-6 border-l-2 border-gray-100">
+                    <div>
+                      <label className="label">Pickup Address *</label>
+                      <textarea
+                        className="input min-h-[60px]"
+                        placeholder="Full street address..."
+                        value={formData.pickup_address}
+                        onInput={(e) =>
+                          setFormData({
+                            ...formData,
+                            pickup_address: (e.target as HTMLTextAreaElement)
+                              .value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="label">Site Contact Name</label>
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="e.g. Security Desk"
+                          value={formData.pickup_contact_name}
+                          onInput={(e) =>
+                            setFormData({
+                              ...formData,
+                              pickup_contact_name: (
+                                e.target as HTMLInputElement
+                              ).value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Site Contact Phone</label>
+                        <input
+                          type="tel"
+                          className="input"
+                          placeholder="Optional"
+                          value={formData.pickup_contact_phone}
+                          onInput={(e) =>
+                            setFormData({
+                              ...formData,
+                              pickup_contact_phone: (
+                                e.target as HTMLInputElement
+                              ).value,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Delivery */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3 text-gray-900 font-medium">
+                    <MapPin className="h-4 w-4" /> Delivery Details
+                  </div>
+                  <div className="space-y-4 pl-6 border-l-2 border-gray-100">
+                    <div>
+                      <label className="label">Delivery Address *</label>
+                      <textarea
+                        className="input min-h-[60px]"
+                        placeholder="Full street address..."
+                        value={formData.delivery_address}
+                        onInput={(e) =>
+                          setFormData({
+                            ...formData,
+                            delivery_address: (e.target as HTMLTextAreaElement)
+                              .value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="label">Site Contact Name</label>
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="e.g. Reception"
+                          value={formData.delivery_contact_name}
+                          onInput={(e) =>
+                            setFormData({
+                              ...formData,
+                              delivery_contact_name: (
+                                e.target as HTMLInputElement
+                              ).value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Site Contact Phone</label>
+                        <input
+                          type="tel"
+                          className="input"
+                          placeholder="Optional"
+                          value={formData.delivery_contact_phone}
+                          onInput={(e) =>
+                            setFormData({
+                              ...formData,
+                              delivery_contact_phone: (
+                                e.target as HTMLInputElement
+                              ).value,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 p-4 bg-gray-50 rounded-md border border-gray-100">
+                  <input
+                    type="checkbox"
+                    id="sig"
+                    checked={formData.requires_signature}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        requires_signature: (e.target as HTMLInputElement)
+                          .checked,
+                      })
+                    }
+                    className="rounded border-gray-300 text-brand focus:ring-brand"
+                  />
+                  <label htmlFor="sig" className="text-sm text-gray-700">
+                    Require digital signature on driver device upon delivery
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3: Schedule & Review */}
+            {currentStep === 3 && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="label">Scheduled Pickup *</label>
+                    <input
+                      type="datetime-local"
+                      className="input"
+                      value={formData.scheduled_pickup}
+                      onInput={(e) =>
+                        setFormData({
+                          ...formData,
+                          scheduled_pickup: (e.target as HTMLInputElement)
+                            .value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Scheduled Delivery *</label>
+                    <input
+                      type="datetime-local"
+                      className="input"
+                      value={formData.scheduled_delivery}
+                      onInput={(e) =>
+                        setFormData({
+                          ...formData,
+                          scheduled_delivery: (e.target as HTMLInputElement)
+                            .value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="col-span-1 md:col-span-2">
+                    <label className="label">Priority Level</label>
+                    <select
+                      className="input"
+                      value={formData.priority}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          priority: (e.target as HTMLSelectElement)
+                            .value as any,
+                        })
+                      }
+                    >
+                      <option value="low">Low</option>
+                      <option value="normal">Normal</option>
+                      <option value="high">High Priority</option>
+                      <option value="urgent">URGENT</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label">
+                    Special Instructions (Driver Visible)
+                  </label>
+                  <textarea
+                    className="input"
+                    placeholder="e.g. Use side entrance, verify ID..."
+                    value={formData.special_instructions}
+                    onInput={(e) =>
+                      setFormData({
+                        ...formData,
+                        special_instructions: (e.target as HTMLTextAreaElement)
+                          .value,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="bg-brand/5 border border-brand/10 rounded-md p-4 text-sm">
+                  <h4 className="font-medium text-brand mb-2">
+                    OTP Delivery Summary
+                  </h4>
+                  <p className="text-gray-600">
+                    The secure unlock code will be sent to: <br />
+                    <span className="font-medium text-gray-900">
+                      {formData.recipient_is_client
+                        ? formData.client_name
+                        : formData.recipient_name}
+                    </span>{" "}
+                    (
+                    {formData.recipient_is_client
+                      ? formData.client_email
+                      : formData.recipient_email}
+                    )
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Actions */}
+          <div className="bg-gray-50 px-6 py-4 flex justify-between items-center border-t border-gray-100">
+            {currentStep > 1 ? (
               <button
-                type="button"
-                onClick={() => setCurrentStep(currentStep + 1)}
-                className="btn btn-primary"
-                disabled={!validateStep(currentStep) || conflicts.length > 0}
+                onClick={() => setCurrentStep((c) => c - 1)}
+                className="btn btn-secondary"
               >
-                Next
+                Back
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                className="btn btn-primary"
-                disabled={loading || conflicts.length > 0}
-              >
-                {loading ? (
-                  <>
-                    <LoadingSpinner size="small" className="mr-2" />
-                    {editTrip ? "Updating..." : "Booking Trip..."}
-                  </>
-                ) : (
-                  <>{editTrip ? "Update Trip" : "Book Trip"}</>
-                )}
+              <button onClick={onClose} className="btn btn-ghost">
+                Cancel
               </button>
             )}
+
+            <button
+              onClick={() =>
+                currentStep === 3 ? handleSubmit() : handleNext()
+              }
+              className="btn btn-primary min-w-[120px]"
+              disabled={loading}
+            >
+              {loading ? (
+                <LoadingSpinner size="small" className="text-white" />
+              ) : (
+                <>
+                  {currentStep === 3 ? "Confirm Booking" : "Next Step"}
+                  {currentStep !== 3 && <ArrowRight className="ml-2 h-4 w-4" />}
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
