@@ -227,6 +227,63 @@ class TripsService {
     }
   }
 
+  async updateTripStatus(tripId: string, status: string) {
+    try {
+      const sessionToken = mobileAuthService.getSessionToken();
+      if (!sessionToken) {
+        return { success: false, error: "Session expired" };
+      }
+
+      const { data, error } = await supabase.functions.invoke(
+        "mobile-trip-action",
+        {
+          headers: {
+            "x-session-token": sessionToken,
+          },
+          body: {
+            action: "update_status",
+            trip_id: tripId,
+            status: status,
+          },
+        }
+      );
+
+      if (error || !data.success) {
+        return { success: false, error: data?.error || error?.message };
+      }
+
+      tripsActions.updateTrip(tripId, data.trip);
+      return { success: true, trip: data.trip };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async addDeliveryNotes(tripId: string, notes: string) {
+    try {
+      const sessionToken = mobileAuthService.getSessionToken();
+      if (!sessionToken) {
+        return { success: false, error: "Session expired" };
+      }
+
+      const { error } = await supabase
+        .from("trips")
+        .update({
+          delivery_notes: notes.trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tripId);
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
   private async logActivity(event: string, tripId: string, details: string) {
     try {
       const user = currentUser.value;

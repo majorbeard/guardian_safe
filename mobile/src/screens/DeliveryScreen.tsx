@@ -1,13 +1,12 @@
 import { useState, useEffect } from "preact/hooks";
 import {
   ArrowLeft,
-  // MapPin,
   Navigation,
   Key,
   CheckCircle,
   AlertCircle,
   Mail,
-  // Phone,
+  // Package,
 } from "lucide-preact";
 import { tripsService } from "../services/trips";
 import { otpService } from "../services/otp";
@@ -21,37 +20,37 @@ interface DeliveryScreenProps {
 }
 
 export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
-  // Steps: travel -> otp_req -> otp_enter -> unlocking -> success
   const [step, setStep] = useState<
-    "travel" | "otp_req" | "otp_enter" | "unlocking" | "success"
+    "travel" | "otp_req" | "otp_enter" | "unlocking" | "summary" | "success"
   >("travel");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [otpCode, setOtpCode] = useState("");
+  const [deliveryNotes, setDeliveryNotes] = useState("");
 
-  // Restore state from LocalStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(`trip_state_${trip.id}`);
     if (saved) setStep(saved as any);
   }, [trip.id]);
 
-  // Save state on change
   useEffect(() => {
     if (step === "success") localStorage.removeItem(`trip_state_${trip.id}`);
     else localStorage.setItem(`trip_state_${trip.id}`, step);
   }, [step, trip.id]);
 
-  // --- Actions ---
-
   const handleArrived = async () => {
     setLoading(true);
     setError("");
     try {
-      // 1. Get Location
       const locResult = await geolocationService.getCurrentPosition();
       if (!locResult.success) throw new Error(locResult.error);
 
-      // 2. Notify Backend (Optional, logic usually handled in OTP req)
+      const updateResult = await tripsService.updateTripStatus(
+        trip.id,
+        "at_location"
+      );
+      if (!updateResult.success) throw new Error(updateResult.error);
+
       setStep("otp_req");
     } catch (err: any) {
       setError(err.message || "Failed to verify location.");
@@ -88,11 +87,9 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
     setError("");
 
     try {
-      // 1. Verify OTP with Backend
       const verifyResult = await otpService.verifyOTP(trip.id, otpCode);
       if (!verifyResult.success) throw new Error(verifyResult.error);
 
-      // 2. Connect Bluetooth (if not already)
       if (!bluetoothService.isConnectedToPi()) {
         await bluetoothService.initialize();
         const scan = await bluetoothService.scanForPi();
@@ -101,29 +98,31 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
         if (!conn.success) throw new Error("Bluetooth connection failed.");
       }
 
-      // 3. Send Unlock Command
       setStep("unlocking");
       const btResult = await bluetoothService.sendOTPToPi(otpCode);
       if (!btResult.success) throw new Error(btResult.error);
 
-      // 4. Complete Trip in Backend
       const completeResult = await tripsService.completeTrip(trip.id);
       if (!completeResult.success) throw new Error(completeResult.error);
 
-      setStep("success");
+      setStep("summary");
     } catch (err: any) {
       setError(err.message || "Unlock process failed.");
-      setStep("otp_enter"); // Go back to allow retry
+      setStep("otp_enter");
     } finally {
       setLoading(false);
     }
   };
 
-  // --- Renders ---
+  const handleConfirmDelivery = async () => {
+    if (deliveryNotes.trim()) {
+      await tripsService.addDeliveryNotes(trip.id, deliveryNotes);
+    }
+    setStep("success");
+  };
 
   return (
     <div className="min-h-screen bg-white flex flex-col pb-safe">
-      {/* Nav */}
       <div className="px-4 py-4 pt-5 border-b border-gray-100 flex items-center bg-white sticky top-0 z-10">
         <button
           onClick={onBack}
@@ -144,27 +143,22 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
         </div>
       </div>
 
-      {/* Error Banner */}
       {error && (
-        <div className="mx-4 mt-4 bg-red-50 border border-red-100 p-3 rounded-lg flex items-start gap-3 animate-fade-in">
+        <div className="mx-4 mt-4 bg-red-50 border border-red-100 p-3 rounded-lg flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-red-800">{error}</p>
         </div>
       )}
 
-      {/* Main Body */}
       <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-        {/* 1. Travel State */}
         {step === "travel" && (
-          <div className="w-full max-w-sm animate-fade-in">
+          <div className="w-full max-w-sm">
             <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
               <Navigation className="h-10 w-10" />
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">En Route</h2>
             <p className="text-gray-500 mb-8">
-              Navigate to the delivery location.
-              <br />
-              Confirm arrival to proceed.
+              Navigate to the delivery location. Confirm arrival to proceed.
             </p>
 
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-8 text-left">
@@ -176,7 +170,7 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
               </p>
               {trip.delivery_contact_name && (
                 <p className="text-sm text-gray-500 mt-1">
-                  {trip.delivery_contact_name} • {trip.delivery_contact_phone}
+                  {trip.delivery_contact_name}
                 </p>
               )}
             </div>
@@ -195,9 +189,8 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
           </div>
         )}
 
-        {/* 2. Request OTP */}
         {step === "otp_req" && (
-          <div className="w-full max-w-sm animate-fade-in">
+          <div className="w-full max-w-sm">
             <div className="w-20 h-20 bg-orange-50 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
               <Mail className="h-10 w-10" />
             </div>
@@ -216,7 +209,7 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
                 {trip.recipient_name || trip.client_name}
               </p>
               <p className="text-gray-500 flex items-center gap-2 mt-1">
-                <Mail className="h-3 w-3" />{" "}
+                <Mail className="h-3 w-3" />
                 {trip.recipient_email || trip.client_email}
               </p>
             </div>
@@ -235,9 +228,8 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
           </div>
         )}
 
-        {/* 3. Enter OTP */}
         {step === "otp_enter" && (
-          <div className="w-full max-w-sm animate-fade-in">
+          <div className="w-full max-w-sm">
             <div className="w-20 h-20 bg-gray-900 text-brand rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
               <Key className="h-10 w-10" />
             </div>
@@ -281,9 +273,8 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
           </div>
         )}
 
-        {/* 4. Unlocking (Transient) */}
         {step === "unlocking" && (
-          <div className="w-full max-w-sm animate-fade-in text-center">
+          <div className="w-full max-w-sm text-center">
             <LoadingSpinner size="large" className="mx-auto mb-6 text-brand" />
             <h2 className="text-xl font-bold text-gray-900">
               Unlocking Safe...
@@ -292,14 +283,77 @@ export function DeliveryScreen({ trip, onBack }: DeliveryScreenProps) {
           </div>
         )}
 
-        {/* 5. Success */}
+        {step === "summary" && (
+          <div className="w-full max-w-sm">
+            <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+              <CheckCircle className="h-10 w-10" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              Delivery Confirmation
+            </h2>
+            <p className="text-gray-500 mb-8">
+              Review delivery details before finalizing
+            </p>
+
+            <div className="space-y-4 mb-8 text-left">
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-2">
+                  Delivery Summary
+                </p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Client:</span>
+                    <span className="font-medium text-gray-900">
+                      {trip.client_name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Recipient:</span>
+                    <span className="font-medium text-gray-900">
+                      {trip.recipient_name || trip.client_name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Time:</span>
+                    <span className="font-medium text-gray-900">
+                      {new Date().toLocaleTimeString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Additional Notes (Optional)
+                </label>
+                <textarea
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-transparent resize-none"
+                  rows={3}
+                  placeholder="Any issues, observations, or comments..."
+                  value={deliveryNotes}
+                  onInput={(e) =>
+                    setDeliveryNotes((e.target as HTMLTextAreaElement).value)
+                  }
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={handleConfirmDelivery}
+              className="w-full btn btn-primary py-4 text-lg rounded-xl shadow-lg shadow-brand/20"
+            >
+              Confirm Delivery
+            </button>
+          </div>
+        )}
+
         {step === "success" && (
-          <div className="w-full max-w-sm animate-fade-in">
+          <div className="w-full max-w-sm">
             <div className="w-24 h-24 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
               <CheckCircle className="h-12 w-12" />
             </div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
-              Delivery Done!
+              Delivery Done
             </h2>
             <p className="text-gray-600 mb-8">Safe unlocked. Job closed.</p>
 

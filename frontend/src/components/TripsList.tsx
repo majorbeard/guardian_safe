@@ -1,11 +1,12 @@
 import { useState } from "preact/hooks";
-import { MapPin, Clock, Navigation, ExternalLink } from "lucide-preact";
+import { MapPin, Clock, Navigation, ExternalLink, X } from "lucide-preact";
 import { trips, safes } from "../store/data";
 import { currentUser, isOwner } from "../store/auth";
 import { dataService } from "../services/data";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { TripTrackingModal } from "./TripTrackingModal";
 import { format, isPast } from "date-fns";
+import { toast } from "./Toast";
 
 interface TripsListProps {
   limit?: number;
@@ -20,6 +21,8 @@ export function TripsList({
 }: TripsListProps) {
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
   const [trackingTrip, setTrackingTrip] = useState<any>(null);
+  const [cancellingTrip, setCancellingTrip] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
   const user = currentUser.value;
   const isOwnerRole = isOwner.value;
@@ -144,12 +147,11 @@ export function TripsList({
 
                           {trip.status === "pending" && (
                             <button
-                              onClick={() =>
-                                handleStatusChange(trip.id, "in_transit")
-                              }
-                              className="btn btn-secondary text-xs py-1 h-7 px-2"
+                              onClick={() => setCancellingTrip(trip.id)}
+                              className="btn btn-ghost text-red-600 hover:text-red-700 p-2"
+                              title="Cancel Trip"
                             >
-                              Start
+                              <X className="h-4 w-4" />
                             </button>
                           )}
 
@@ -196,6 +198,78 @@ export function TripsList({
           trip={trackingTrip}
           onClose={() => setTrackingTrip(null)}
         />
+      )}
+
+      {cancellingTrip && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">
+              Cancel Trip
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              This will cancel the scheduled transport. This action cannot be
+              undone.
+            </p>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Cancellation Reason *
+              </label>
+              <textarea
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-brand focus:border-transparent"
+                rows={3}
+                placeholder="Why is this trip being cancelled?"
+                value={cancelReason}
+                onInput={(e) =>
+                  setCancelReason((e.target as HTMLTextAreaElement).value)
+                }
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Minimum 10 characters. This will be logged for records.
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setCancellingTrip(null);
+                  setCancelReason("");
+                }}
+                className="btn btn-secondary"
+              >
+                Keep Trip
+              </button>
+              <button
+                onClick={async () => {
+                  if (!cancelReason.trim()) {
+                    toast.error("Please provide a cancellation reason");
+                    return;
+                  }
+
+                  if (cancelReason.trim().length < 10) {
+                    toast.error("Reason must be at least 10 characters");
+                    return;
+                  }
+
+                  const result = await dataService.cancelTrip(
+                    cancellingTrip,
+                    cancelReason
+                  );
+                  if (!result.success) {
+                    toast.error(result.error || "Failed to cancel trip");
+                  }
+
+                  setCancellingTrip(null);
+                  setCancelReason("");
+                }}
+                className="btn btn-danger"
+              >
+                Confirm Cancellation
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

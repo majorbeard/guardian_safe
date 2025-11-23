@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { withTimeout } from "../utils/requestHelpers";
+// import { withTimeout } from "../utils/requestHelpers";
 
 interface LoginResponse {
   state: string;
@@ -43,19 +43,20 @@ class TrackneticsService {
     operation: string,
     params: Record<string, any> = {}
   ): Promise<any> {
-    try {
-      // Get current session for authentication
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    const maxRetries = 2;
+    let lastError: any;
 
-      if (!session) {
-        throw new Error("Authentication required");
-      }
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      // Timeout
-      const result = await withTimeout(
-        supabase.functions.invoke("tracknetics-proxy", {
+        if (!session) {
+          throw new Error("Authentication required");
+        }
+
+        const invokePromise = supabase.functions.invoke("tracknetics-proxy", {
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },
@@ -63,25 +64,38 @@ class TrackneticsService {
             operation,
             params,
           },
-        }),
-        {
-          timeoutMs: 30000,
-          showErrorToast: true,
+        });
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Tracknetics request timeout")),
+            15000
+          )
+        );
+
+        const { data, error } = (await Promise.race([
+          invokePromise,
+          timeoutPromise,
+        ])) as any;
+
+        if (error) {
+          throw new Error(`Proxy error: ${error.message}`);
         }
-      );
 
-      const { data, error } = result;
+        return data;
+      } catch (err: any) {
+        lastError = err;
 
-      if (error) {
-        console.error("Proxy call error:", error);
-        throw new Error(`Proxy error: ${error.message}`);
+        if (attempt < maxRetries && err.message?.includes("timeout")) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+
+        throw err;
       }
-
-      return data;
-    } catch (err) {
-      console.error("API call failed:", err);
-      throw err;
     }
+
+    throw lastError;
   }
 
   // Login and get authentication key

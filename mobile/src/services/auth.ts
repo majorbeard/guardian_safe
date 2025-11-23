@@ -7,27 +7,25 @@ class MobileAuthService {
   async initialize() {
     authActions.setLoading(true);
 
-    console.log("Initializing mobile auth...");
-
     try {
       const storedUser = this.getStoredUser();
+      const session = this.getStoredSession();
 
-      if (storedUser) {
-        const isValid = await this.validateAndRefreshUser(storedUser);
-
-        if (isValid) {
-          console.log("Stored user is valid");
-          return;
-        } else {
-          console.log("Stored user is invalid, clearing...");
-          this.clearStoredUser();
+      if (storedUser && session) {
+        if (new Date(session.expires_at) > new Date()) {
+          const isValid = await this.validateAndRefreshUser(storedUser);
+          if (isValid) {
+            authActions.setLoading(false);
+            return;
+          }
         }
       }
 
-      console.log("No valid stored user found");
-    } catch (error) {
-      console.error("Auth initialization error:", error);
       this.clearStoredUser();
+      this.clearSession();
+    } catch (error) {
+      this.clearStoredUser();
+      this.clearSession();
     } finally {
       authActions.setLoading(false);
     }
@@ -100,14 +98,11 @@ class MobileAuthService {
 
   private async validateAndRefreshUser(storedUser: any): Promise<boolean> {
     try {
-      // Check if session is still valid
       const session = this.getStoredSession();
       if (!session || new Date(session.expires_at) < new Date()) {
-        console.log("Session expired");
         return false;
       }
 
-      // Verify user still exists and is active
       const { data: user, error: userError } = await supabase
         .from("mobile_users")
         .select("*")
@@ -116,11 +111,9 @@ class MobileAuthService {
         .single();
 
       if (userError || !user) {
-        console.log("User validation failed:", userError);
         return false;
       }
 
-      // Get fresh safe data
       const { data: safe, error: safeError } = await supabase
         .from("safes")
         .select("*")
@@ -128,28 +121,27 @@ class MobileAuthService {
         .single();
 
       if (safeError) {
-        console.log("Safe lookup failed:", safeError);
-        // Continue with null safe
+        return false;
       }
 
       const refreshedUser = {
-        id: user.id as string,
-        username: user.username as string,
-        driver_name: user.driver_name as string | undefined,
-        safe_id: user.safe_id as string,
+        id: user.id,
+        username: user.username,
+        driver_name: user.driver_name,
+        safe_id: user.safe_id,
         safe: safe
           ? {
-              id: safe.id as string,
-              serial_number: safe.serial_number as string,
-              status: safe.status as string,
-              battery_level: safe.battery_level as number,
-              is_locked: safe.is_locked as boolean,
-              tracking_device_id: (safe.tracking_device_id ||
-                safe.tracknetics_device_id) as string | undefined,
+              id: safe.id,
+              serial_number: safe.serial_number,
+              status: safe.status,
+              battery_level: safe.battery_level,
+              is_locked: safe.is_locked,
+              tracking_device_id:
+                safe.tracking_device_id || safe.tracknetics_device_id,
             }
           : null,
-        is_active: user.is_active as boolean,
-        created_at: user.created_at as string,
+        is_active: true,
+        created_at: user.created_at,
       };
 
       this.storeUser(refreshedUser);
@@ -157,7 +149,6 @@ class MobileAuthService {
 
       return true;
     } catch (error) {
-      console.error("User validation error:", error);
       return false;
     }
   }

@@ -625,14 +625,21 @@ class DataService {
   // Cancel a trip
   async cancelTrip(
     tripId: string,
-    cancelReason?: string
+    cancelReason: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
+      if (!cancelReason || cancelReason.trim().length < 10) {
+        return {
+          success: false,
+          error: "Cancellation reason must be at least 10 characters",
+        };
+      }
+
       const { error } = await supabase
         .from("trips")
         .update({
           status: "cancelled",
-          cancellation_reason: cancelReason,
+          cancellation_reason: cancelReason.trim(),
           cancelled_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -642,13 +649,10 @@ class DataService {
         return { success: false, error: error.message };
       }
 
+      toast.success("Trip cancelled");
       return { success: true };
     } catch (error) {
-      console.error("Error cancelling trip:", error);
-      return {
-        success: false,
-        error: "Failed to cancel trip. Please try again.",
-      };
+      return { success: false, error: "Failed to cancel trip" };
     }
   }
 
@@ -657,7 +661,6 @@ class DataService {
     const user = currentUser.value;
     if (!user) return;
 
-    // Subscribe to safes
     this.safesSubscription = supabase
       .channel("safes-changes")
       .on(
@@ -675,8 +678,6 @@ class DataService {
         }
       )
       .subscribe((status) => {
-        console.log("Safes subscription status:", status);
-
         if (status === "CHANNEL_ERROR") {
           this.handleSubscriptionError("safes");
         } else if (status === "SUBSCRIBED") {
@@ -684,7 +685,6 @@ class DataService {
         }
       });
 
-    // Subscribe to trips
     this.tripsSubscription = supabase
       .channel("trips-changes")
       .on(
@@ -693,17 +693,22 @@ class DataService {
         (payload) => {
           if (payload.eventType === "INSERT") {
             dataActions.addTrip(payload.new as Trip);
+            toast.info("New trip assigned");
           } else if (payload.eventType === "UPDATE") {
             dataActions.updateTrip(
               payload.new.id,
               payload.new as Partial<Trip>
             );
+
+            if (payload.old.status !== payload.new.status) {
+              toast.info(
+                `Trip status: ${payload.new.status.replace("_", " ")}`
+              );
+            }
           }
         }
       )
       .subscribe((status) => {
-        console.log("Trips subscription status:", status);
-
         if (status === "CHANNEL_ERROR") {
           this.handleSubscriptionError("trips");
         } else if (status === "SUBSCRIBED") {

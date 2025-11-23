@@ -8,11 +8,13 @@ import { StatsCards } from "./StatsCards";
 import { LiveTracking } from "./LiveTracking";
 import { safes, trips } from "../store/data";
 import { currentUser } from "../store/auth";
+import { TripHistoryPage } from "./TripHistoryPage";
+import { FileText } from "lucide-preact";
 
 export function AdminDashboard() {
   const [showCreateTrip, setShowCreateTrip] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "overview" | "safes" | "trips" | "tracking"
+    "overview" | "safes" | "trips" | "tracking" | "history"
   >("overview");
 
   const user = currentUser.value;
@@ -67,6 +69,13 @@ export function AdminDashboard() {
       icon: Package,
       isActive: activeTab === "trips",
       onClick: () => setActiveTab("trips"),
+    },
+    {
+      id: "history",
+      label: "History",
+      icon: FileText,
+      isActive: activeTab === "history",
+      onClick: () => setActiveTab("history"),
     },
   ];
 
@@ -157,6 +166,13 @@ export function AdminDashboard() {
               {safesInTransit.length !== 1 ? "s" : ""} currently in transit.
             </div>
             <LiveTracking safes={safesInTransit} />
+          </div>
+        )}
+
+        {/* History tab */}
+        {activeTab === "history" && (
+          <div className="animate-fade-in">
+            <TripHistoryPage />
           </div>
         )}
       </DashboardLayout>

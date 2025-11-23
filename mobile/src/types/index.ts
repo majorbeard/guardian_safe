@@ -28,16 +28,14 @@ export interface Trip {
   client_email?: string;
   pickup_address: string;
   delivery_address: string;
-  status: "pending" | "in_transit" | "delivered" | "cancelled";
+  status: "pending" | "in_transit" | "at_location" | "delivered" | "cancelled";
   scheduled_pickup: string;
   scheduled_delivery: string;
   special_instructions?: string;
   priority?: "low" | "normal" | "high" | "urgent";
   requires_signature?: boolean;
-  tracking_token?: string;
-  customer_tracking_enabled?: boolean;
-  created_by: string;
   created_at: string;
+  updated_at: string;
 }
 
 // Mobile-specific types

@@ -82,7 +82,12 @@ export interface Trip {
   updated_at: string;
 }
 
-export type TripStatus = "pending" | "in_transit" | "delivered" | "cancelled";
+export type TripStatus =
+  | "pending"
+  | "in_transit"
+  | "at_location"
+  | "delivered"
+  | "cancelled";
 export type TripPriority = "low" | "normal" | "high" | "urgent";
 
 export interface AuthState {

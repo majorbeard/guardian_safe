@@ -19,6 +19,7 @@ import {
   createArrowIcon,
   getOpenStreetMapLayer,
 } from "../utils/leafletHelpers";
+import { supabase } from "../lib/supabase";
 
 interface CustomerTrackingPageProps {
   trackingToken: string;
@@ -114,7 +115,6 @@ export function CustomerTrackingPage({
     try {
       fixLeafletIcons();
 
-      // Wait for DOM to fully render
       setTimeout(() => {
         if (!mapRef.current) return;
 
@@ -129,7 +129,6 @@ export function CustomerTrackingPage({
 
         leafletMapRef.current = map;
 
-        // Force size recalculation
         setTimeout(() => {
           if (leafletMapRef.current) {
             leafletMapRef.current.invalidateSize();
@@ -137,13 +136,12 @@ export function CustomerTrackingPage({
         }, 250);
 
         setMapsLoaded(true);
-        // Update marker if location exists
+
         if (safeLocation.location) {
           setTimeout(() => updateSafeMarker(), 500);
         }
       }, 100);
     } catch (error) {
-      console.error("Error initializing customer map:", error);
       setMapsError("Failed to initialize map");
     }
   };
@@ -320,59 +318,82 @@ export function CustomerTrackingPage({
     }
   }, [trip, autoRefresh]);
 
+  // Realtime Subsrciption
+  useEffect(() => {
+    if (!trip) return;
+
+    const channel = supabase
+      .channel(`trip-${trip.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "trips",
+          filter: `id=eq.${trip.id}`,
+        },
+        (payload: any) => {
+          setTrip((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              ...payload.new,
+            } as TripTrackingData;
+          });
+
+          if (payload.new.status !== payload.old.status) {
+            updateSafeLocation();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [trip?.id]);
+
   // Helper functions
-  /*   const getStatusInfo = (status: string) => {
+  const getStatusInfo = (status: string) => {
     switch (status) {
       case "pending":
         return {
+          label: "Scheduled",
+          description: "Your secure transport is scheduled for collection",
           color: "bg-blue-100 text-blue-800",
-          icon: Clock,
-          label: "Secure Transport Scheduled",
-          description:
-            "Your valuable items are scheduled for secure collection",
         };
       case "in_transit":
         return {
+          label: "In Transit",
+          description: "Your items are in secure transit with GPS monitoring",
           color: "bg-yellow-100 text-yellow-800",
-          icon: Package,
-          label: "Secure Transport In Progress",
-          description:
-            "Your items are in secure transit with live GPS monitoring",
+        };
+      case "at_location":
+        return {
+          label: "Driver at Location",
+          description: "Driver has arrived and is preparing for delivery",
+          color: "bg-orange-100 text-orange-800",
         };
       case "delivered":
         return {
-          color: "bg-green-100 text-green-800",
-          icon: CheckCircle,
-          label: "Secure Delivery Complete",
+          label: "Delivered",
           description: "Your items have been safely delivered",
+          color: "bg-green-100 text-green-800",
         };
       case "cancelled":
         return {
+          label: "Cancelled",
+          description: "This transport has been cancelled",
           color: "bg-gray-100 text-gray-800",
-          icon: AlertCircle,
-          label: "Transport Cancelled",
-          description: "This secure transport has been cancelled",
         };
       default:
         return {
-          color: "bg-gray-100 text-gray-800",
-          icon: Package,
-          label: "Status Unknown",
+          label: "Unknown",
           description: "",
+          color: "bg-gray-100 text-gray-800",
         };
     }
-  }; */
-
-  /*   const getPriorityLabel = (priority?: string) => {
-    switch (priority) {
-      case "urgent":
-        return "URGENT";
-      case "high":
-        return "HIGH PRIORITY";
-      default:
-        return "STANDARD";
-    }
-  }; */
+  };
 
   if (loading) {
     return (
@@ -431,8 +452,12 @@ export function CustomerTrackingPage({
       {/* Split Layout */}
       <div className="flex-1 flex flex-col lg:flex-row relative">
         {/* Map Container - Takes dominance */}
-        <div className="flex-1 relative min-h-[50vh] bg-gray-100 order-2 lg:order-1">
-          <div ref={mapRef} className="absolute inset-0 z-0" />
+        <div className="flex-1 relative min-h-[50vh] lg:min-h-screen bg-gray-100 order-2 lg:order-1">
+          <div
+            ref={mapRef}
+            className="absolute inset-0 z-0"
+            style={{ minHeight: "400px", width: "100%" }}
+          />
 
           {/* Floating Map Controls (Example) */}
           <div className="absolute bottom-6 right-6 z-10 flex flex-col gap-2">
@@ -454,27 +479,24 @@ export function CustomerTrackingPage({
             <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">
               Transport Status
             </h2>
-            <div className="flex items-center gap-3 mb-2">
-              <div
-                className={`p-2 rounded-full ${
-                  trip?.status === "in_transit"
-                    ? "bg-brand-light text-brand"
-                    : "bg-gray-100 text-gray-500"
-                }`}
-              >
-                <Package className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 capitalize">
-                  {trip?.status.replace("_", " ")}
-                </h3>
-                <p className="text-sm text-gray-500">
-                  {trip?.status === "in_transit"
-                    ? "Arriving shortly"
-                    : "Scheduled"}
-                </p>
-              </div>
-            </div>
+            {(() => {
+              const statusInfo = getStatusInfo(trip?.status || "");
+              return (
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`p-2 rounded-full ${statusInfo.color}`}>
+                    <Package className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">
+                      {statusInfo.label}
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      {statusInfo.description}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <hr className="border-gray-100" />

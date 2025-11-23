@@ -7,14 +7,16 @@ import { UsersList } from "./UsersList";
 import { SafesList } from "./SafesList";
 import { TripsList } from "./TripsList";
 import { StatsCards } from "./StatsCards";
-import { LiveTracking } from "./LiveTracking"; // Added import
+import { LiveTracking } from "./LiveTracking";
 import { safes, trips } from "../store/data";
+import { TripHistoryPage } from "./TripHistoryPage";
+import { FileText } from "lucide-preact";
 
 export function OwnerDashboard() {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showCreateSafe, setShowCreateSafe] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "overview" | "users" | "safes" | "trips" | "tracking"
+    "overview" | "users" | "safes" | "trips" | "tracking" | "history"
   >("overview");
 
   const safesList = safes.value;
@@ -63,6 +65,13 @@ export function OwnerDashboard() {
       icon: MapPin,
       isActive: activeTab === "tracking",
       onClick: () => setActiveTab("tracking"),
+    },
+    {
+      id: "history",
+      label: "History",
+      icon: FileText,
+      isActive: activeTab === "history",
+      onClick: () => setActiveTab("history"),
     },
   ];
 
@@ -151,6 +160,12 @@ export function OwnerDashboard() {
         {activeTab === "tracking" && (
           <div className="animate-fade-in">
             <LiveTracking safes={safesList} />
+          </div>
+        )}
+
+        {activeTab === "history" && (
+          <div className="animate-fade-in">
+            <TripHistoryPage />
           </div>
         )}
       </DashboardLayout>

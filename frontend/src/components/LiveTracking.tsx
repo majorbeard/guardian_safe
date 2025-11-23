@@ -18,6 +18,7 @@ import {
   getOpenStreetMapLayer,
   getSatelliteLayer,
 } from "../utils/leafletHelpers";
+import { trips } from "../store/data";
 
 interface LiveTrackingProps {
   safes: Safe[];
@@ -275,12 +276,21 @@ export function LiveTracking({ safes }: LiveTrackingProps) {
     setLoading(false);
   };
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 30 seconds | 15 seconds for active trips
   useEffect(() => {
     updateLocations();
 
     if (autoRefresh) {
-      const interval = setInterval(updateLocations, 30000);
+      const hasActiveTrips = safes.some((safe) =>
+        trips.value.some(
+          (trip) =>
+            trip.safe_id === safe.id &&
+            (trip.status === "in_transit" || trip.status === "at_location")
+        )
+      );
+
+      const pollInterval = hasActiveTrips ? 15000 : 30000;
+      const interval = setInterval(updateLocations, pollInterval);
       return () => clearInterval(interval);
     }
   }, [safes, autoRefresh]);
