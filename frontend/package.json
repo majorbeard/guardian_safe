@@ -13,12 +13,16 @@
     "@supabase/supabase-js": "^2.57.2",
     "@tailwindcss/vite": "^4.1.12",
     "@types/leaflet": "^1.9.21",
+    "@types/react-datepicker": "^6.2.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "flatpickr": "^4.6.13",
     "leaflet": "^1.9.4",
     "lucide-preact": "^0.541.0",
     "lucide-react": "^0.542.0",
-    "preact": "^10.27.0"
+    "preact": "^10.27.0",
+    "react-datepicker": "^8.9.0",
+    "react-leaflet": "^5.0.0"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.2",

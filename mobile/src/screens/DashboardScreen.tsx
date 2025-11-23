@@ -39,10 +39,11 @@ export function DashboardScreen() {
 
   // Pi Status State
   const [piStatus, setPiStatus] = useState<{
+    verified: boolean;
+    lockOpen: boolean;
     batteryPercent: number;
     safeStatus: string;
     voltage: number;
-    lockOpen: boolean;
   } | null>(null);
 
   // 1. Initialize Bluetooth
@@ -83,12 +84,30 @@ export function DashboardScreen() {
   // Helper to update status safely
   const updateStatusState = (status: any) => {
     setPiStatus({
+      verified: status.verified,
+      lockOpen: status.lockOpen,
       batteryPercent: status.batteryPercent,
       safeStatus: status.safeStatus,
       voltage: status.voltage,
-      lockOpen: status.lockOpen,
     });
   };
+
+  // Subscribe to real-time status updates
+  useEffect(() => {
+    if (!btConnected) return;
+
+    bluetoothService.subscribeToPiStatus((status) => {
+      console.log("Real-time status update:", status);
+      // Merge notification with existing state to preserve all fields
+      setPiStatus((prev) => ({
+        verified: status.verified,
+        lockOpen: status.lockOpen,
+        batteryPercent: status.batteryPercent,
+        voltage: status.voltage,
+        safeStatus: prev?.safeStatus || "active", // Preserve or default
+      }));
+    });
+  }, [btConnected]);
 
   // 3. Load Trips
   useEffect(() => {

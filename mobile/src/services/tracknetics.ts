@@ -1,10 +1,7 @@
 import { supabase } from "./supabase";
 
-interface TrackneticsCredentials {
-  username: string;
-  password: string;
-  apiKey?: string;
-}
+// Credentials are now handled server-side in Supabase Edge Function
+// No need to store them client-side anymore
 
 interface LoginResponse {
   state: string;
@@ -41,15 +38,11 @@ interface LocationData {
 }
 
 class TrackneticsService {
-  private credentials: TrackneticsCredentials;
+  // Credentials removed - now handled server-side in Supabase Edge Function
   private currentSession: { userID?: string; key?: string } | null = null;
 
   constructor() {
-    this.credentials = {
-      username: import.meta.env.VITE_TRACKNETICS_USERNAME || "",
-      password: import.meta.env.VITE_TRACKNETICS_PASSWORD || "",
-      apiKey: import.meta.env.VITE_TRACKNETICS_API_KEY || "",
-    };
+    // No credentials needed client-side anymore
   }
 
   // Make API call through Supabase Edge Function proxy
@@ -81,12 +74,11 @@ class TrackneticsService {
   }
 
   // Login and get authentication key
+  // Credentials are now handled by the Supabase Edge Function
   async login(): Promise<{ success: boolean; error?: string }> {
     try {
-      const data: LoginResponse = await this.apiCall("Login", {
-        name: this.credentials.username,
-        pass: this.credentials.password,
-      });
+      // Edge Function handles credentials server-side
+      const data: LoginResponse = await this.apiCall("Login", {});
 
       if (data.state === "0" && data.userInfo) {
         this.currentSession = {

@@ -279,11 +279,27 @@ export function validateTripData(data: any): {
     errors.client_name = "Client name must be at least 2 characters";
   }
 
-  // Validate client_email (optional but must be valid if provided)
-  if (data.client_email) {
-    const emailValidation = validateEmail(data.client_email);
-    if (!emailValidation.valid) {
-      errors.client_email = emailValidation.error;
+  // Validate email - REQUIRED for OTP delivery
+  // Either client_email (if recipient_is_client) or recipient_email must be valid
+  if (data.recipient_is_client) {
+    // Client is recipient - client_email is required
+    if (!data.client_email) {
+      errors.client_email = "Client email is required for OTP delivery";
+    } else {
+      const emailValidation = validateEmail(data.client_email);
+      if (!emailValidation.valid) {
+        errors.client_email = emailValidation.error;
+      }
+    }
+  } else {
+    // Different recipient - recipient_email is required
+    if (!data.recipient_email) {
+      errors.recipient_email = "Recipient email is required for OTP delivery";
+    } else {
+      const recipientEmailValidation = validateEmail(data.recipient_email);
+      if (!recipientEmailValidation.valid) {
+        errors.recipient_email = recipientEmailValidation.error;
+      }
     }
   }
 
@@ -329,14 +345,6 @@ export function validateTripData(data: any): {
     const minDuration = 30 * 60 * 1000; // 30 minutes
     if (deliveryDate.getTime() - pickupDate.getTime() < minDuration) {
       errors.scheduled_delivery = "Minimum trip duration is 30 minutes";
-    }
-  }
-
-  // Validate recipient email if provided
-  if (!data.recipient_is_client && data.recipient_email) {
-    const recipientEmailValidation = validateEmail(data.recipient_email);
-    if (!recipientEmailValidation.valid) {
-      errors.recipient_email = recipientEmailValidation.error;
     }
   }
 

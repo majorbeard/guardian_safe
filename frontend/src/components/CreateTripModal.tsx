@@ -14,6 +14,8 @@ import {
 import { dataService, type TripBookingData } from "../services/data";
 import { LoadingSpinner } from "./LoadingSpinner";
 import type { Safe } from "../types";
+import { AddressInput, type AddressData } from "./AddressInput";
+import { DateTimePicker } from "./DateTimePicker";
 
 interface CreateTripModalProps {
   onClose: () => void;
@@ -27,6 +29,9 @@ export function CreateTripModal({
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Validation state for real-time feedback
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Restored FULL data structure matching your original logic
   const [formData, setFormData] = useState<TripBookingData>({
@@ -65,14 +70,77 @@ export function CreateTripModal({
     { id: 3, title: "Schedule", icon: Calendar },
   ];
 
+  // Handler for pickup date change with auto-population of delivery
+  const handlePickupDateChange = (isoString: string) => {
+    setFormData((prev) => {
+      const updates: Partial<TripBookingData> = {
+        scheduled_pickup: isoString,
+      };
+
+      // Auto-populate delivery time (pickup + 1 hour) if delivery is empty
+      if (isoString && !prev.scheduled_delivery) {
+        const pickupDate = new Date(isoString);
+        pickupDate.setHours(pickupDate.getHours() + 1);
+        updates.scheduled_delivery = pickupDate.toISOString();
+      }
+
+      return { ...prev, ...updates };
+    });
+  };
+
+  // Handler for address changes with geocoding data
+  const handleAddressChange = (field: "pickup_address" | "delivery_address", value: string, _data?: AddressData) => {
+    setFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+    // You can store geocoding data (lat, lon) if needed for future features
+  };
+
+  // Validation handler
+  const handleValidationChange = (field: string, _isValid: boolean, error?: string) => {
+    setValidationErrors((prev) => {
+      const updated = { ...prev };
+      if (error) {
+        updated[field] = error;
+      } else {
+        delete updated[field];
+      }
+      return updated;
+    });
+  };
+
   const handleNext = () => {
     setError("");
+
+    // Check for field-level validation errors
+    const currentStepErrors = Object.keys(validationErrors).filter(key => {
+      if (currentStep === 2) {
+        return key.includes("address");
+      }
+      if (currentStep === 3) {
+        return key.includes("scheduled");
+      }
+      return false;
+    });
+
+    if (currentStepErrors.length > 0) {
+      return setError("Please fix the validation errors before continuing.");
+    }
+
     // Basic validation per step
     if (currentStep === 1) {
       if (!formData.safe_id) return setError("Please select a safe.");
       if (!formData.client_name) return setError("Client Name is required.");
-      // If recipient is NOT client, we need those details for the OTP
-      if (!formData.recipient_is_client) {
+
+      // Email is ALWAYS required for OTP delivery
+      if (formData.recipient_is_client) {
+        // Client is the recipient - client email is required
+        if (!formData.client_email) {
+          return setError("Client Email is required for OTP delivery.");
+        }
+      } else {
+        // Different recipient - recipient email is required
         if (!formData.recipient_name || !formData.recipient_email) {
           return setError(
             "Recipient Name and Email are required for OTP delivery."
@@ -251,13 +319,14 @@ export function CreateTripModal({
                     </div>
                     <div className="col-span-2">
                       <label className="label">
-                        Client Email (for invoice/tracking)
+                        Client Email (for OTP delivery) *
                       </label>
                       <input
                         type="email"
                         className="input"
                         placeholder="accounts@acme.com"
                         value={formData.client_email}
+                        required
                         onInput={(e) =>
                           setFormData({
                             ...formData,
@@ -265,6 +334,9 @@ export function CreateTripModal({
                           })
                         }
                       />
+                      <p className="text-xs text-gray-500 mt-1">
+                        OTP will be sent to this email address
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -328,13 +400,14 @@ export function CreateTripModal({
                       </div>
                       <div className="col-span-2">
                         <label className="label">
-                          Recipient Email (for Email OTP) *
+                          Recipient Email (for OTP delivery) *
                         </label>
                         <input
                           type="email"
                           className="input bg-white"
                           placeholder="receiver@email.com"
                           value={formData.recipient_email}
+                          required
                           onInput={(e) =>
                             setFormData({
                               ...formData,
@@ -367,21 +440,14 @@ export function CreateTripModal({
                     <MapPin className="h-4 w-4" /> Pickup Details
                   </div>
                   <div className="space-y-4 pl-6 border-l-2 border-gray-100">
-                    <div>
-                      <label className="label">Pickup Address *</label>
-                      <textarea
-                        className="input min-h-[60px]"
-                        placeholder="Full street address..."
-                        value={formData.pickup_address}
-                        onInput={(e) =>
-                          setFormData({
-                            ...formData,
-                            pickup_address: (e.target as HTMLTextAreaElement)
-                              .value,
-                          })
-                        }
-                      />
-                    </div>
+                    <AddressInput
+                      label="Pickup Address"
+                      value={formData.pickup_address}
+                      onChange={(value, data) => handleAddressChange("pickup_address", value, data)}
+                      onValidationChange={(isValid, error) => handleValidationChange("pickup_address", isValid, error)}
+                      placeholder="Start typing an address..."
+                      required={true}
+                    />
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="label">Site Contact Name</label>
@@ -427,21 +493,14 @@ export function CreateTripModal({
                     <MapPin className="h-4 w-4" /> Delivery Details
                   </div>
                   <div className="space-y-4 pl-6 border-l-2 border-gray-100">
-                    <div>
-                      <label className="label">Delivery Address *</label>
-                      <textarea
-                        className="input min-h-[60px]"
-                        placeholder="Full street address..."
-                        value={formData.delivery_address}
-                        onInput={(e) =>
-                          setFormData({
-                            ...formData,
-                            delivery_address: (e.target as HTMLTextAreaElement)
-                              .value,
-                          })
-                        }
-                      />
-                    </div>
+                    <AddressInput
+                      label="Delivery Address"
+                      value={formData.delivery_address}
+                      onChange={(value, data) => handleAddressChange("delivery_address", value, data)}
+                      onValidationChange={(isValid, error) => handleValidationChange("delivery_address", isValid, error)}
+                      placeholder="Start typing an address..."
+                      required={true}
+                    />
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="label">Site Contact Name</label>
@@ -506,36 +565,25 @@ export function CreateTripModal({
             {currentStep === 3 && (
               <div className="space-y-6 animate-fade-in">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="label">Scheduled Pickup *</label>
-                    <input
-                      type="datetime-local"
-                      className="input"
-                      value={formData.scheduled_pickup}
-                      onInput={(e) =>
-                        setFormData({
-                          ...formData,
-                          scheduled_pickup: (e.target as HTMLInputElement)
-                            .value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Scheduled Delivery *</label>
-                    <input
-                      type="datetime-local"
-                      className="input"
-                      value={formData.scheduled_delivery}
-                      onInput={(e) =>
-                        setFormData({
-                          ...formData,
-                          scheduled_delivery: (e.target as HTMLInputElement)
-                            .value,
-                        })
-                      }
-                    />
-                  </div>
+                  <DateTimePicker
+                    label="Scheduled Pickup"
+                    value={formData.scheduled_pickup}
+                    onChange={handlePickupDateChange}
+                    onValidationChange={(isValid, error) => handleValidationChange("scheduled_pickup", isValid, error)}
+                    placeholder="Select pickup date and time"
+                    required={true}
+                    businessHoursOnly={true}
+                  />
+                  <DateTimePicker
+                    label="Scheduled Delivery"
+                    value={formData.scheduled_delivery}
+                    onChange={(value) => setFormData({ ...formData, scheduled_delivery: value })}
+                    onValidationChange={(isValid, error) => handleValidationChange("scheduled_delivery", isValid, error)}
+                    placeholder="Select delivery date and time"
+                    required={true}
+                    businessHoursOnly={true}
+                    minDate={formData.scheduled_pickup ? new Date(formData.scheduled_pickup) : new Date()}
+                  />
                   <div className="col-span-1 md:col-span-2">
                     <label className="label">Priority Level</label>
                     <select

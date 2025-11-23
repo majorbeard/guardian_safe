@@ -34,7 +34,6 @@ class TripsService {
       return;
     }
 
-    // Verify session is still valid
     const sessionToken = mobileAuthService.getSessionToken();
     if (!sessionToken) {
       console.log("Session expired, logging out");
@@ -50,7 +49,7 @@ class TripsService {
         .from("trips")
         .select("*")
         .eq("safe_id", user.safe_id)
-        .in("status", ["pending", "in_transit"])
+        .in("status", ["pending", "in_transit", "at_location"])
         .order("scheduled_pickup", { ascending: true });
 
       console.log("Trips query result:", data);
@@ -59,7 +58,6 @@ class TripsService {
       if (error) {
         console.error("Failed to load trips:", error);
 
-        // If unauthorized, session might be invalid
         if (error.code === "PGRST301" || error.message?.includes("JWT")) {
           console.log("Session invalid, logging out");
           await mobileAuthService.logout();
@@ -79,7 +77,6 @@ class TripsService {
       tripsActions.setLoading(false);
     }
   }
-
   async startTrip(tripId: string) {
     try {
       const sessionToken = mobileAuthService.getSessionToken();

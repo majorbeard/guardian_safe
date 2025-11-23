@@ -251,7 +251,7 @@ class BluetoothService {
       // Parse status bytes
       const statusArray = new Uint8Array(result.buffer);
 
-      // Validate response length
+      // Validate response length - expecting 6 bytes
       if (statusArray.length < 6) {
         return {
           success: false,
@@ -261,17 +261,12 @@ class BluetoothService {
 
       const verified = statusArray[0] === 1;
       const lockOpen = statusArray[1] === 1;
-      const batteryPercent = Math.min(100, Math.max(0, statusArray[2])); // Clamp 0-100
+      const batteryPercent = Math.min(100, Math.max(0, statusArray[2]));
       const statusCode = statusArray[3];
 
       // Reconstruct voltage from two bytes
       const voltageInt = (statusArray[4] << 8) | statusArray[5];
       const voltage = voltageInt / 10.0;
-
-      // Validate voltage range
-      if (voltage < 0 || voltage > 30) {
-        console.warn("Voltage out of expected range:", voltage);
-      }
 
       // Map status code to string
       const statusMap: Record<
@@ -340,6 +335,7 @@ class BluetoothService {
           try {
             const statusArray = new Uint8Array(value.buffer);
 
+            // Expecting 6 bytes: [verified, lock_open, battery, status, voltage_high, voltage_low]
             if (statusArray.length >= 6) {
               const verified = statusArray[0] === 1;
               const lockOpen = statusArray[1] === 1;
@@ -347,7 +343,18 @@ class BluetoothService {
               const voltageInt = (statusArray[4] << 8) | statusArray[5];
               const voltage = voltageInt / 10.0;
 
+              console.log("Status notification received:", {
+                verified,
+                lockOpen,
+                batteryPercent,
+                voltage: `${voltage.toFixed(1)}V`,
+              });
               callback({ verified, lockOpen, batteryPercent, voltage });
+            } else {
+              console.warn(
+                "Invalid status notification length:",
+                statusArray.length
+              );
             }
           } catch (parseError) {
             console.error("Error parsing notification:", parseError);

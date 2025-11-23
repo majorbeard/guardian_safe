@@ -7,7 +7,7 @@ interface TripData {
   client_email?: string;
   pickup_address: string;
   delivery_address: string;
-  status: "pending" | "in_transit" | "delivered" | "cancelled";
+  status: "pending" | "in_transit" | "at_location" | "delivered" | "cancelled";
   scheduled_pickup: string;
   scheduled_delivery: string;
   special_instructions?: string;
@@ -45,7 +45,9 @@ export const pendingTrips = computed(() =>
 
 // Get in-transit trip (should only be one)
 export const inTransitTrip = computed(() =>
-  tripsState.value.trips.find((trip) => trip.status === "in_transit")
+  tripsState.value.trips.find(
+    (trip) => trip.status === "in_transit" || trip.status === "at_location"
+  )
 );
 
 // Actions

@@ -55,9 +55,11 @@ class OTPService {
 
       if (error) {
         console.error("OTP request error:", error);
+        // Try to extract the error message from the response body if available
+        const errorMessage = data?.error || error.message || "Failed to request OTP";
         return {
           success: false,
-          error: error.message || "Failed to request OTP",
+          error: errorMessage,
         };
       }
 
@@ -113,9 +115,11 @@ class OTPService {
 
       if (error) {
         console.error("OTP verification error:", error);
+        // Try to extract the error message from the response body if available
+        const errorMessage = data?.error || error.message || "Failed to verify OTP";
         return {
           success: false,
-          error: error.message || "Failed to verify OTP",
+          error: errorMessage,
         };
       }
 

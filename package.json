@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "flatpickr": "^4.6.13"
+  },
+  "devDependencies": {
+    "@types/flatpickr": "^3.0.2",
+    "@types/leaflet": "^1.9.21"
+  }
+}
