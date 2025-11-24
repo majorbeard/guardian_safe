@@ -33,7 +33,7 @@ class BluetoothService {
   async initialize() {
     try {
       // Check if user is authenticated
-      const sessionToken = mobileAuthService.getSessionToken();
+      const sessionToken = await mobileAuthService.getSessionToken();
       if (!sessionToken) {
         console.error("Cannot initialize Bluetooth: User not authenticated");
         return { success: false, error: "Authentication required" };

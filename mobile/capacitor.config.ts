@@ -4,6 +4,9 @@ const config: CapacitorConfig = {
   appId: "com.guardiansafe.mobile",
   appName: "Guardian Safe Driver",
   webDir: "dist",
+  android: {
+    allowMixedContent: true,
+  },
   plugins: {
     BluetoothLe: {
       displayStrings: {

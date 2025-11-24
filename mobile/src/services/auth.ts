@@ -1,33 +1,89 @@
 import { supabase } from "./supabase";
 import { authActions } from "../store/auth";
+import { storageService } from "./storage";
+
+interface StoredSession {
+  token: string;
+  expires_at: string;
+}
 
 class MobileAuthService {
   private readonly STORAGE_KEY = "guardian_mobile_user";
+  private readonly SESSION_KEY = "guardian_mobile_session";
+  private sessionCheckInterval: number | null = null;
 
   async initialize() {
+    console.log("Initializing mobile auth service...");
     authActions.setLoading(true);
 
     try {
-      const storedUser = this.getStoredUser();
-      const session = this.getStoredSession();
+      const storedUser = await this.getStoredUser();
+      const session = await this.getStoredSession();
 
       if (storedUser && session) {
-        if (new Date(session.expires_at) > new Date()) {
-          const isValid = await this.validateAndRefreshUser(storedUser);
-          if (isValid) {
-            authActions.setLoading(false);
-            return;
-          }
+        const sessionExpiry = new Date(session.expires_at);
+        const now = new Date();
+
+        // 1. Check if token is valid by date
+        if (sessionExpiry > now) {
+          console.log(
+            "Valid session found in storage. Logging in optimistically."
+          );
+
+          // OPTIMISTIC LOGIN: Set user immediately from storage
+          // This allows the app to open even if offline
+          authActions.setUser(storedUser);
+          this.startSessionMonitoring();
+
+          // 2. Refresh data in the background (fire and forget)
+          // We do not await this, so it doesn't block the UI
+          this.validateAndRefreshUser(storedUser).catch((err) => {
+            console.warn("Background refresh failed (likely offline):", err);
+            // Do NOT logout here. If the token is truly invalid,
+            // API calls in trips.ts will return 401 and trigger logout later.
+          });
+
+          authActions.setLoading(false);
+          return;
+        } else {
+          console.log("Session expired by date.");
         }
       }
 
-      this.clearStoredUser();
-      this.clearSession();
+      console.log("No valid session found, clearing storage");
+      await this.clearStoredUser();
+      await this.clearSession();
+      authActions.logout(); // Ensure state is cleared
     } catch (error) {
-      this.clearStoredUser();
-      this.clearSession();
+      console.error("Error during auth initialization:", error);
+      // In case of catastrophic error, safer to logout
+      await this.clearStoredUser();
+      await this.clearSession();
+      authActions.logout();
     } finally {
       authActions.setLoading(false);
+    }
+  }
+
+  private startSessionMonitoring() {
+    if (this.sessionCheckInterval) {
+      clearInterval(this.sessionCheckInterval);
+    }
+
+    // Check session validity every 5 minutes
+    this.sessionCheckInterval = window.setInterval(async () => {
+      const session = await this.getStoredSession();
+      if (!session || new Date(session.expires_at) < new Date()) {
+        console.log("Session expired during monitoring, logging out");
+        await this.logout();
+      }
+    }, 5 * 60 * 1000);
+  }
+
+  private stopSessionMonitoring() {
+    if (this.sessionCheckInterval) {
+      clearInterval(this.sessionCheckInterval);
+      this.sessionCheckInterval = null;
     }
   }
 
@@ -56,31 +112,34 @@ class MobileAuthService {
       console.log("Login successful for:", data.user.username);
 
       // Store session token
-      this.storeSession(data.session.token, data.session.expires_at);
+      await this.storeSession(data.session.token, data.session.expires_at);
 
-      // Create mobile user object with proper typing
+      // Create mobile user object
       const mobileUser = {
-        id: data.user.id as string,
-        username: data.user.username as string,
-        driver_name: data.user.driver_name as string | undefined,
-        safe_id: data.user.safe_id as string,
+        id: data.user.id,
+        username: data.user.username,
+        driver_name: data.user.driver_name,
+        safe_id: data.user.safe_id,
         safe: data.safe
           ? {
-              id: data.safe.id as string,
-              serial_number: data.safe.serial_number as string,
-              status: data.safe.status as string,
-              battery_level: data.safe.battery_level as number,
-              is_locked: data.safe.is_locked as boolean,
-              tracking_device_id: (data.safe.tracking_device_id ||
-                data.safe.tracknetics_device_id) as string | undefined,
+              id: data.safe.id,
+              serial_number: data.safe.serial_number,
+              status: data.safe.status,
+              battery_level: data.safe.battery_level,
+              is_locked: data.safe.is_locked,
+              tracking_device_id:
+                data.safe.tracking_device_id || data.safe.tracknetics_device_id,
             }
           : null,
         is_active: true,
         created_at: new Date().toISOString(),
       };
 
-      this.storeUser(mobileUser);
+      await this.storeUser(mobileUser);
       authActions.setUser(mobileUser);
+
+      // Start session monitoring
+      this.startSessionMonitoring();
 
       return { success: true };
     } catch (error: any) {
@@ -91,18 +150,20 @@ class MobileAuthService {
 
   async logout() {
     console.log("Logging out...");
-    this.clearStoredUser();
-    this.clearSession();
+    this.stopSessionMonitoring();
+    await this.clearStoredUser();
+    await this.clearSession();
     authActions.logout();
   }
 
+  // Refactored to just return boolean success, not logout
   private async validateAndRefreshUser(storedUser: any): Promise<boolean> {
     try {
-      const session = this.getStoredSession();
-      if (!session || new Date(session.expires_at) < new Date()) {
-        return false;
-      }
+      console.log("Background refreshing user data...");
 
+      // Note: This query might fail if your RLS (Row Level Security)
+      // blocks 'anon' requests and the standard Supabase client
+      // doesn't have the custom session token.
       const { data: user, error: userError } = await supabase
         .from("mobile_users")
         .select("*")
@@ -111,6 +172,10 @@ class MobileAuthService {
         .single();
 
       if (userError || !user) {
+        console.warn(
+          "Could not refresh user (RLS or Network error):",
+          userError
+        );
         return false;
       }
 
@@ -121,7 +186,8 @@ class MobileAuthService {
         .single();
 
       if (safeError) {
-        return false;
+        console.warn("Could not refresh safe:", safeError);
+        // Don't fail completely if just the safe data is missing
       }
 
       const refreshedUser = {
@@ -144,74 +210,52 @@ class MobileAuthService {
         created_at: user.created_at,
       };
 
-      this.storeUser(refreshedUser);
+      // Only update if we successfully got new data
+      await this.storeUser(refreshedUser);
       authActions.setUser(refreshedUser);
-
+      console.log("User data refreshed successfully");
       return true;
     } catch (error) {
+      console.error("Error validating user:", error);
       return false;
     }
   }
 
-  private getStoredUser(): any {
-    try {
-      const stored = localStorage.getItem(this.STORAGE_KEY);
-      return stored ? JSON.parse(stored) : null;
-    } catch {
+  private async getStoredUser(): Promise<any> {
+    return await storageService.get(this.STORAGE_KEY);
+  }
+
+  private async storeUser(user: any): Promise<void> {
+    await storageService.set(this.STORAGE_KEY, user);
+  }
+
+  private async clearStoredUser(): Promise<void> {
+    await storageService.remove(this.STORAGE_KEY);
+  }
+
+  private async getStoredSession(): Promise<StoredSession | null> {
+    return await storageService.get<StoredSession>(this.SESSION_KEY);
+  }
+
+  private async storeSession(token: string, expires_at: string): Promise<void> {
+    await storageService.set(this.SESSION_KEY, { token, expires_at });
+  }
+
+  private async clearSession(): Promise<void> {
+    await storageService.remove(this.SESSION_KEY);
+  }
+
+  async getSessionToken(): Promise<string | null> {
+    const session = await this.getStoredSession();
+    if (!session) return null;
+
+    const expiresAt = new Date(session.expires_at);
+    const now = new Date();
+
+    if (expiresAt < now) {
       return null;
     }
-  }
 
-  private storeUser(user: any): void {
-    try {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(user));
-    } catch (error) {
-      console.error("Failed to store user:", error);
-    }
-  }
-
-  private clearStoredUser(): void {
-    try {
-      localStorage.removeItem(this.STORAGE_KEY);
-    } catch (error) {
-      console.error("Failed to clear stored user:", error);
-    }
-  }
-
-  private getStoredSession(): { token: string; expires_at: string } | null {
-    try {
-      const stored = localStorage.getItem("guardian_mobile_session");
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private storeSession(token: string, expires_at: string): void {
-    try {
-      localStorage.setItem(
-        "guardian_mobile_session",
-        JSON.stringify({ token, expires_at })
-      );
-    } catch (error) {
-      console.error("Failed to store session:", error);
-    }
-  }
-
-  private clearSession(): void {
-    try {
-      localStorage.removeItem("guardian_mobile_session");
-    } catch (error) {
-      console.error("Failed to clear session:", error);
-    }
-  }
-
-  // Get current session token for authenticated requests
-  getSessionToken(): string | null {
-    const session = this.getStoredSession();
-    if (!session || new Date(session.expires_at) < new Date()) {
-      return null;
-    }
     return session.token;
   }
 }

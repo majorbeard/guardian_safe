@@ -30,7 +30,7 @@ class OTPService {
 
       console.log("Requesting OTP for trip:", tripId);
 
-      const sessionToken = mobileAuthService.getSessionToken();
+      const sessionToken = await mobileAuthService.getSessionToken();
 
       console.log("Session token retrieved:", sessionToken ? "YES" : "NO");
 
@@ -95,7 +95,7 @@ class OTPService {
         return { success: false, error: "Invalid OTP format" };
       }
 
-      const sessionToken = mobileAuthService.getSessionToken();
+      const sessionToken = await mobileAuthService.getSessionToken();
 
       if (!sessionToken) {
         return {

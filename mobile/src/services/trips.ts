@@ -29,19 +29,15 @@ class TripsService {
 
   async loadTrips() {
     const user = currentUser.value;
-    if (!user?.safe_id) {
-      console.log("No user or safe_id found:", user);
-      return;
-    }
+    if (!user?.safe_id) return;
 
-    const sessionToken = mobileAuthService.getSessionToken();
+    const sessionToken = await mobileAuthService.getSessionToken();
     if (!sessionToken) {
-      console.log("Session expired, logging out");
+      // If no token locally, logout
       await mobileAuthService.logout();
       return;
     }
 
-    console.log("Loading trips for safe_id:", user.safe_id);
     tripsActions.setLoading(true);
 
     try {
@@ -52,34 +48,35 @@ class TripsService {
         .in("status", ["pending", "in_transit", "at_location"])
         .order("scheduled_pickup", { ascending: true });
 
-      console.log("Trips query result:", data);
-      console.log("Trips query error:", error);
-
       if (error) {
         console.error("Failed to load trips:", error);
 
+        // CHECK FOR AUTH ERRORS
+        // PGRST301 is often a permission denied / JWT error
         if (error.code === "PGRST301" || error.message?.includes("JWT")) {
-          console.log("Session invalid, logging out");
+          console.log("Server rejected session, logging out");
           await mobileAuthService.logout();
           return;
         }
 
-        tripsActions.setError("Failed to load trips");
+        // If it's just a network error, keep the user logged in!
+        tripsActions.setError("Offline: Could not sync trips");
         return;
       }
 
-      console.log(`Found ${data?.length || 0} trips`);
       tripsActions.setTrips(data || []);
     } catch (err) {
       console.error("Exception loading trips:", err);
-      tripsActions.setError("Failed to load trips");
+      // Do NOT logout on generic exceptions (like network timeout)
+      tripsActions.setError("Connection failed");
     } finally {
       tripsActions.setLoading(false);
     }
   }
+
   async startTrip(tripId: string) {
     try {
-      const sessionToken = mobileAuthService.getSessionToken();
+      const sessionToken = await mobileAuthService.getSessionToken();
 
       const { data, error } = await supabase.functions.invoke(
         "mobile-trip-action",
@@ -116,7 +113,7 @@ class TripsService {
     console.log("Attempting to complete trip:", tripId);
 
     try {
-      const sessionToken = mobileAuthService.getSessionToken();
+      const sessionToken = await mobileAuthService.getSessionToken();
 
       if (!sessionToken) {
         return {
@@ -226,7 +223,7 @@ class TripsService {
 
   async updateTripStatus(tripId: string, status: string) {
     try {
-      const sessionToken = mobileAuthService.getSessionToken();
+      const sessionToken = await mobileAuthService.getSessionToken();
       if (!sessionToken) {
         return { success: false, error: "Session expired" };
       }
@@ -258,7 +255,7 @@ class TripsService {
 
   async addDeliveryNotes(tripId: string, notes: string) {
     try {
-      const sessionToken = mobileAuthService.getSessionToken();
+      const sessionToken = await mobileAuthService.getSessionToken();
       if (!sessionToken) {
         return { success: false, error: "Session expired" };
       }
