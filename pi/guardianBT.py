@@ -7,8 +7,24 @@ import dbus.mainloop.glib
 import dbus.service
 from gi.repository import GLib
 import RPi.GPIO as GPIO
-# from RPLCD.i2c import CharLCD
 from datetime import datetime
+import logging
+
+# Configure logging
+logging.basicConfig(
+    filename='/home/pi/guardian.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+# Also log to console
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console.setFormatter(formatter)
+logging.getLogger('').addHandler(console)
+
+logger = logging.getLogger(__name__)
 
 # Disable GPIO warnings
 GPIO.setwarnings(False)
@@ -18,13 +34,16 @@ RELAY_PIN = 18
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(RELAY_PIN, GPIO.OUT)
 GPIO.output(RELAY_PIN, GPIO.LOW)
+logger.info("GPIO initialized - Relay on pin %d", RELAY_PIN)
 
 # LCD Setup (16x2)
 try:
+    from RPLCD.i2c import CharLCD
     lcd = CharLCD('PCF8574', 0x27, cols=16, rows=2)
     lcd.clear()
-except:
-    print("LCD not found, continuing without display")
+    logger.info("LCD initialized successfully")
+except Exception as e:
+    logger.warning("LCD not found: %s - continuing without display", str(e))
     lcd = None
 
 # Hardcoded MAC addresses for validation
@@ -69,19 +88,19 @@ def display_message(line1, line2=""):
                 lcd.cursor_pos = (1, 0)
                 lcd.write_string(line2[:16])
         except Exception as e:
-            print(f"LCD Error: {e}")
-    print(f"LCD: {line1} | {line2}")
+            logger.error("LCD display error: %s", str(e))
+    logger.info("LCD: %s | %s", line1, line2)
 
 def open_lock():
     """Open the relay lock"""
     global lock_open, status_characteristic
-    print("Opening lock...")
+    logger.info("Opening lock - relay activating")
     display_message("Opening Lock...", "Stand By")
     GPIO.output(RELAY_PIN, GPIO.HIGH)
     time.sleep(2)  # Initial delay
     lock_open = True
     display_message("Lock Opened!", "Remove Items")
-    print("Lock opened!")
+    logger.info("Lock opened successfully")
 
     # Notify status change
     if status_characteristic:
@@ -94,7 +113,7 @@ def auto_close_lock():
     """Automatically close the lock after timeout"""
     global otp_verified
     if lock_open:
-        print("Auto-closing lock after 15 seconds")
+        logger.info("Auto-closing lock after 15 second timeout")
         close_lock()
         # Reset OTP verification after auto-close
         otp_verified = False
@@ -105,11 +124,11 @@ def auto_close_lock():
 def close_lock():
     """Close the relay lock"""
     global lock_open, status_characteristic
-    print("Closing lock...")
+    logger.info("Closing lock - relay deactivating")
     GPIO.output(RELAY_PIN, GPIO.LOW)
     lock_open = False
     display_message("Lock Closed", "Ready")
-    print("Lock closed!")
+    logger.info("Lock closed successfully")
 
     # Notify status change
     if status_characteristic:
@@ -148,8 +167,11 @@ def update_system_health():
         # System is active if lock operations are working
         safe_status = 1  # active
 
+        logger.debug("System health updated - Battery: %d%%, Voltage: %.2fV, Status: %d", 
+                    battery_percent, voltage, safe_status)
+
     except Exception as e:
-        print(f"Health update error: {e}")
+        logger.error("Health update error: %s", str(e))
         battery_percent = 100
         voltage = 12.0
         safe_status = 1
@@ -160,14 +182,14 @@ def verify_otp(received_otp):
     """Verify OTP code"""
     global otp_verified, current_otp, status_characteristic
 
-    print(f"Verifying OTP: {received_otp}")
+    logger.info("OTP verification attempt - Code: %s", received_otp)
     display_message("Verifying OTP", received_otp)
 
     # Verify OTP format (6 digits)
     if len(received_otp) == 6 and received_otp.isdigit():
         current_otp = received_otp
         otp_verified = True
-        print("OTP verified!")
+        logger.info("OTP verified successfully - Code: %s", received_otp)
         display_message("OTP Verified!", "Opening...")
 
         # Notify status change
@@ -178,7 +200,7 @@ def verify_otp(received_otp):
         open_lock()
         return True
     else:
-        print("Invalid OTP format")
+        logger.warning("OTP verification failed - Invalid format: %s", received_otp)
         display_message("Invalid OTP", "Try Again")
         return False
 
@@ -189,12 +211,14 @@ class Application(dbus.service.Object):
         self.path = '/'
         self.services = []
         dbus.service.Object.__init__(self, bus, self.path)
+        logger.debug("Application initialized")
 
     def get_path(self):
         return dbus.ObjectPath(self.path)
 
     def add_service(self, service):
         self.services.append(service)
+        logger.debug("Service added to application")
 
     @dbus.service.method(DBUS_OM_IFACE, out_signature='a{oa{sa{sv}}}')
     def GetManagedObjects(self):
@@ -218,6 +242,7 @@ class Service(dbus.service.Object):
         self.primary = primary
         self.characteristics = []
         dbus.service.Object.__init__(self, bus, self.path)
+        logger.debug("Service created - UUID: %s", uuid)
 
     def get_properties(self):
         return {
@@ -235,6 +260,7 @@ class Service(dbus.service.Object):
 
     def add_characteristic(self, characteristic):
         self.characteristics.append(characteristic)
+        logger.debug("Characteristic added to service")
 
     def get_characteristic_paths(self):
         result = []
@@ -257,6 +283,7 @@ class Characteristic(dbus.service.Object):
         # Initialize with proper signature - empty byte array
         self.value = dbus.Array([], signature='y')
         dbus.service.Object.__init__(self, bus, self.path)
+        logger.debug("Characteristic created - UUID: %s, Flags: %s", uuid, flags)
 
     def get_properties(self):
         return {
@@ -275,12 +302,12 @@ class Characteristic(dbus.service.Object):
                         in_signature='a{sv}',
                         out_signature='ay')
     def ReadValue(self, options):
-        print(f'📖 ReadValue called on {self.uuid}')
+        logger.debug("ReadValue called on characteristic: %s", self.uuid)
         return self.value
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
     def WriteValue(self, value, options):
-        print(f'✍️  WriteValue called on {self.uuid}')
+        logger.debug("WriteValue called on characteristic: %s", self.uuid)
         self.value = value
 
 class OTPCharacteristic(Characteristic):
@@ -292,14 +319,15 @@ class OTPCharacteristic(Characteristic):
             OTP_CHAR_UUID,
             ['write', 'write-without-response'],
             service)
+        logger.info("OTP Characteristic initialized")
 
     def WriteValue(self, value, options):
         global otp_verified
-        print('OTP WriteValue called')
+        logger.info("OTP WriteValue called - Received %d bytes", len(value))
         
         # Convert bytes to string
         otp_code = ''.join([chr(byte) for byte in value])
-        print(f"Received OTP: {otp_code}")
+        logger.info("OTP received from mobile app: %s", otp_code)
         
         # Verify OTP
         verify_otp(otp_code)
@@ -317,10 +345,11 @@ class StatusCharacteristic(Characteristic):
             service)
         # Initialize with default status [0, 0, 100, 1, 0, 120] (6 bytes)
         self.value = dbus.Array([dbus.Byte(0), dbus.Byte(0), dbus.Byte(100), dbus.Byte(1), dbus.Byte(0), dbus.Byte(120)], signature='y')
+        logger.info("Status Characteristic initialized")
 
     def ReadValue(self, options):
         global otp_verified, lock_open, battery_percent, safe_status, voltage
-        print('Status ReadValue called')
+        logger.debug("Status ReadValue called")
 
         # Pack status into 6 bytes:
         # [0] verified (0/1)
@@ -349,7 +378,8 @@ class StatusCharacteristic(Characteristic):
             dbus.Byte(voltage_low)
         ], signature='y')
 
-        print(f"Sending status: verified={otp_verified}, lock={lock_open}, battery={battery_percent}%, status={safe_status}, voltage={voltage}V")
+        logger.info("Status sent - Verified: %s, Lock: %s, Battery: %d%%, Status: %d, Voltage: %.2fV",
+                   otp_verified, lock_open, battery_percent, safe_status, voltage)
 
         self.value = status
         return status
@@ -378,6 +408,7 @@ class StatusCharacteristic(Characteristic):
 
         # Emit property changed signal for notification
         self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': self.value}, [])
+        logger.debug("Status notification sent to mobile app")
 
     @dbus.service.signal(DBUS_PROP_IFACE, signature='sa{sv}as')
     def PropertiesChanged(self, interface, changed, invalidated):
@@ -399,6 +430,7 @@ class Advertisement(dbus.service.Object):
         self.local_name = 'GuardianSafe'
         self.include_tx_power = False
         dbus.service.Object.__init__(self, bus, self.path)
+        logger.debug("Advertisement created - Name: %s", self.local_name)
 
     def get_properties(self):
         properties = dict()
@@ -429,7 +461,7 @@ class Advertisement(dbus.service.Object):
                          in_signature='',
                          out_signature='')
     def Release(self):
-        print('Advertisement Released')
+        logger.info("Advertisement released")
 
 def find_adapter(bus):
     """Find Bluetooth adapter"""
@@ -452,16 +484,18 @@ advertisement = None
 def main():
     global mainloop, app, service_manager, ad_manager, advertisement, status_characteristic
 
+    logger.info("Guardian Safe BLE Server starting...")
+    
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
     bus = dbus.SystemBus()
 
     adapter = find_adapter(bus)
     if not adapter:
-        print('BLE adapter not found!')
+        logger.error("BLE adapter not found - Cannot start server")
         return
 
-    print(f'Using adapter: {adapter}')
+    logger.info("Using BLE adapter: %s", adapter)
     display_message("Guardian Safe", "Initializing...")
 
     # Create application
@@ -487,10 +521,10 @@ def main():
         bus.get_object(BLUEZ_SERVICE_NAME, adapter),
         GATT_MANAGER_IFACE)
 
-    print('Registering GATT application...')
+    logger.info("Registering GATT application...")
     service_manager.RegisterApplication(app.get_path(), {},
-                                       reply_handler=lambda: print('GATT application registered'),
-                                       error_handler=lambda e: print(f'Failed to register: {e}'))
+                                       reply_handler=lambda: logger.info("GATT application registered successfully"),
+                                       error_handler=lambda e: logger.error("Failed to register GATT application: %s", str(e)))
 
     # Create advertisement
     ad_manager = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
@@ -499,16 +533,15 @@ def main():
     advertisement = Advertisement(bus, 0, 'peripheral')
     advertisement.service_uuids = [SERVICE_UUID]
 
-    print('Registering advertisement...')
+    logger.info("Registering BLE advertisement...")
     ad_manager.RegisterAdvertisement(advertisement.get_path(), {},
-                                    reply_handler=lambda: print('Advertisement registered'),
-                                    error_handler=lambda e: print(f'Failed to advertise: {e}'))
+                                    reply_handler=lambda: logger.info("BLE advertisement registered successfully"),
+                                    error_handler=lambda e: logger.error("Failed to register advertisement: %s", str(e)))
 
     display_message("Guardian Safe", "Ready")
-    print('BLE Server Running!')
-    print('Waiting for phone connection...')
-    print(f'Service UUID: {SERVICE_UUID}')
-    print(f'Device Name: GuardianSafe')
+    logger.info("BLE Server running - Waiting for mobile app connection")
+    logger.info("Service UUID: %s", SERVICE_UUID)
+    logger.info("Device Name: GuardianSafe")
 
     # Start periodic health monitoring (every 60 seconds)
     GLib.timeout_add_seconds(60, update_system_health)
@@ -519,34 +552,37 @@ def main():
     try:
         mainloop.run()
     except KeyboardInterrupt:
-        print('\nStopping server...')
+        logger.info("Shutdown signal received - Stopping server")
         display_message("Shutting Down", "")
         
         # Clean shutdown
         try:
             if ad_manager and advertisement:
                 ad_manager.UnregisterAdvertisement(advertisement.get_path())
-        except:
-            pass
+                logger.info("Advertisement unregistered")
+        except Exception as e:
+            logger.error("Error unregistering advertisement: %s", str(e))
             
         try:
             if service_manager and app:
                 service_manager.UnregisterApplication(app.get_path())
-        except:
-            pass
+                logger.info("Application unregistered")
+        except Exception as e:
+            logger.error("Error unregistering application: %s", str(e))
             
         close_lock()
+        logger.info("Guardian Safe BLE Server stopped")
 
 if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print('\nGoodbye!')
+        logger.info("Program terminated by user")
     except Exception as e:
-        print(f'Fatal error: {e}')
-        import traceback
-        traceback.print_exc()
+        logger.critical("Fatal error occurred: %s", str(e), exc_info=True)
     finally:
         GPIO.cleanup()
+        logger.info("GPIO cleanup completed")
         if lcd:
             lcd.clear()
+            logger.info("LCD cleared")
