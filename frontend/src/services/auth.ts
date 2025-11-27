@@ -271,8 +271,9 @@ class AuthService {
     email: string;
     username: string;
     password: string;
-    role: "admin";
+    role: "admin" | "owner";
     created_by?: string;
+    must_change_password?: boolean;
   }) {
     try {
       const { data, error } = await supabase.auth.signUp({
