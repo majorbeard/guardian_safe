@@ -285,7 +285,7 @@ class AuthService {
             role: userData.role,
             must_change_password: userData.must_change_password ?? true,
           },
-          emailRedirectTo: `${window.location.origin}/login`,
+          emailRedirectTo: `${window.location.origin}`,
         },
       });
 
